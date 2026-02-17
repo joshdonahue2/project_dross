@@ -81,11 +81,14 @@ class ToolRegistry:
         """Returns JSON string of available tools."""
         return json.dumps(self.schemas, indent=2)
 
-    def execute(self, tool_name: str, args: Dict[str, Any], context: Dict[str, Any] = None) -> str:
+    def execute(self, tool_name: str, args: Dict[str, Any], context: Dict[str, Any] = None, callback: Optional[Callable] = None) -> str:
         """Executes a registered tool."""
         if tool_name not in self.tools:
             return f"Error: Tool '{tool_name}' not found."
         
+        if callback:
+            callback(tool_name, args)
+            
         try:
             func = self.tools[tool_name]
             sig = inspect.signature(func)

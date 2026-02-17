@@ -1,381 +1,330 @@
 /* ============================================================
-   DROSS Command Center v3.2 - Script
+   DROSS // Ether Script
    ============================================================ */
 
-// Configure Marked for security and line breaks
-marked.setOptions({
-    gfm: true,
-    breaks: true,
-    sanitize: false, // We'll trust the agent output but ideally sanitize if it were a public app
-    headerIds: false,
-    mangle: false
-});
+marked.setOptions({ gfm: true, breaks: true });
 
 const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-
 let ws;
-let reconnectDelay = 1000;
 let reconnectTimer = null;
 
-function connectWebSocket() {
+// DOM Selectors
+const els = {
+    orb: document.getElementById('nexus-orb'),
+    stateLabel: document.getElementById('nexus-state'),
+    activityLabel: document.getElementById('nexus-activity'),
+    chatMessages: document.getElementById('chat-messages'),
+    chatInput: document.getElementById('chat-input'),
+    sendBtn: document.getElementById('send-btn'),
+    liveStream: document.getElementById('live-stream'),
+    missionGoal: document.getElementById('mission-goal'),
+    missionSubtasks: document.getElementById('mission-subtasks'),
+    memCountBadge: document.getElementById('mem-count-badge'),
+    systemInfo: document.getElementById('system-info'),
+    ollamaHealth: document.getElementById('ollama-health'),
+    toolsGrid: document.getElementById('tools-grid'),
+    journalFeed: document.getElementById('journal-feed'),
+    fleetGrid: document.getElementById('fleet-grid'),
+    filesList: document.getElementById('files-list')
+};
+
+function connect() {
     ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
 
     ws.onopen = () => {
-        reconnectDelay = 1000;
-        clearTimeout(reconnectTimer);
-        addLog("SYSTEM: Uplink established.", "success");
-        updateStatus("ONLINE");
-        if (els.connectionDot) els.connectionDot.className = "status-indicator online";
+        setOrbState('idle');
+        els.stateLabel.innerText = "Core Connected";
+        addStreamLine("System uplink established.", "sys");
         fetchStatus();
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-
-        if (data.type === "response") {
-            addMessage("assistant", data.content);
-            updateStatus("IDLE");
-        } else if (data.type === "status") {
-            updateStatus(data.status.toUpperCase());
-        } else if (data.type === "log") {
-            let type = "system";
-            if (data.content.toLowerCase().includes("error")) type = "error";
-            if (data.content.includes("⚡")) type = "success";
-            addLog(data.content, type);
-
-            if (data.content.includes("Heartbeat:")) {
-                const thought = data.content.replace(/.*Heartbeat:\s*(Autonomy:\s*)?/, "").trim();
-                if (thought) addThought(thought);
-            }
-        } else if (data.type === "refresh_status") {
-            fetchStatus();
-        } else if (data.type === "refresh_journal") {
-            if (document.getElementById('tab-journal').classList.contains('active')) {
-                loadJournal();
-            }
-        }
+        handleWsMessage(data);
     };
 
     ws.onclose = () => {
-        addLog(`SYSTEM: Uplink lost. Reconnecting in ${reconnectDelay / 1000}s...`, "error");
-        updateStatus("OFFLINE");
-        if (els.connectionDot) els.connectionDot.className = "status-indicator";
-        reconnectTimer = setTimeout(() => {
-            reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-            connectWebSocket();
-        }, reconnectDelay);
+        setOrbState('idle');
+        els.stateLabel.innerText = "Connection Lost";
+        setTimeout(connect, 2000);
     };
 }
 
-// DOM Elements
-const els = {
-    chatWindow: document.getElementById("chat-window"),
-    userInput: document.getElementById("user-input"),
-    sendBtn: document.getElementById("send-btn"),
-    statusPill: document.getElementById("agent-status-pill"),
-    statusText: document.getElementById("agent-status-text"),
-    goalTitle: document.getElementById("goal-title"),
-    subtaskList: document.getElementById("subtask-list"),
-    logConsole: document.getElementById("log-console"),
-    memoryCount: document.getElementById("memory-count"),
-    connectionDot: document.getElementById("connection-dot"),
-    thoughtStream: document.getElementById("proactive-stream"),
-    journalFeed: document.getElementById("journal-entries"),
-    ollamaHealth: document.getElementById("ollama-health-grid"),
-    systemInfo: document.getElementById("system-info-box")
-};
+function handleWsMessage(data) {
+    switch (data.type) {
+        case 'status':
+            setOrbState(data.status);
+            if (data.status === 'thinking') els.activityLabel.innerText = "Processing neural patterns...";
+            else if (data.status === 'speaking') els.activityLabel.innerText = "Transmitting response...";
+            else if (data.status === 'idle') els.activityLabel.innerText = "Awaiting interaction...";
+            break;
 
-connectWebSocket();
+        case 'tool_start':
+            setOrbState('thinking');
+            const args = JSON.stringify(data.args);
+            els.activityLabel.innerText = `Executing: ${data.tool}`;
+            addStreamLine(`⚡ Running ${data.tool}(${args.substring(0, 30)}${args.length > 30 ? '...' : ''})`, "tool");
+            break;
 
-// --- Core UI Functions ---
+        case 'response':
+            addChatMessage('assistant', data.content);
+            setOrbState('idle');
+            els.activityLabel.innerText = "Task complete.";
+            break;
 
-function updateStatus(status) {
-    els.statusText.innerText = status;
-    els.statusPill.className = "status-pill";
+        case 'log':
+            addStreamLine(data.content);
+            break;
 
-    if (status === "THINKING") {
-        els.statusPill.style.color = "var(--yellow)";
-        els.statusPill.style.borderColor = "rgba(255, 215, 0, 0.2)";
-    } else if (status === "SPEAKING") {
-        els.statusPill.style.color = "var(--cyan)";
-        els.statusPill.style.borderColor = "rgba(0, 243, 255, 0.2)";
-    } else if (status === "OFFLINE") {
-        els.statusPill.style.color = "var(--red)";
-        els.statusPill.style.borderColor = "rgba(255, 49, 49, 0.2)";
-    } else {
-        els.statusPill.style.color = "var(--green)";
-        els.statusPill.style.borderColor = "rgba(0, 255, 136, 0.1)";
+        case 'refresh_status':
+            fetchStatus();
+            break;
+            
+        case 'refresh_journal':
+            if (document.getElementById('view-journal').classList.contains('active')) fetchJournal();
+            break;
     }
 }
 
-function addMessage(role, text) {
-    const div = document.createElement("div");
-    div.classList.add("message", role);
+function setOrbState(state) {
+    els.orb.className = 'orb ' + state;
+    if (state === 'thinking') els.stateLabel.innerText = "Nexus Reasoning";
+    else if (state === 'speaking') els.stateLabel.innerText = "Nexus Speaking";
+    else els.stateLabel.innerText = "Nexus Core";
+}
 
-    if (role === "assistant") {
+function addChatMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    if (role === 'assistant') {
         div.innerHTML = marked.parse(text);
     } else {
         div.innerText = text;
     }
-
-    els.chatWindow.appendChild(div);
-    els.chatWindow.scrollTop = els.chatWindow.scrollHeight;
+    els.chatMessages.appendChild(div);
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 }
 
-function addLog(text, type = "system") {
-    const div = document.createElement("div");
-    div.classList.add("log-line", type);
-    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+function addStreamLine(text, type = "") {
+    const div = document.createElement('div');
+    div.className = `stream-line ${type}`;
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
     div.innerText = `[${time}] ${text}`;
-    els.logConsole.appendChild(div);
-    els.logConsole.scrollTop = els.logConsole.scrollHeight;
-
-    while (els.logConsole.children.length > 200) els.logConsole.removeChild(els.logConsole.firstChild);
+    els.liveStream.prepend(div);
+    if (els.liveStream.children.length > 50) els.liveStream.removeChild(els.liveStream.lastChild);
 }
 
-function addThought(text) {
-    const div = document.createElement("div");
-    div.classList.add("thought-entry");
-    div.innerText = text;
-    els.thoughtStream.prepend(div);
-    if (els.thoughtStream.children.length > 20) els.thoughtStream.removeChild(els.thoughtStream.lastChild);
-}
-
-function sendMessage() {
-    const text = els.userInput.value.trim();
-    if (!text) return;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addLog("SYSTEM: Cannot send — uplink not connected.", "error");
-        return;
-    }
-    addMessage("user", text);
+async function sendMessage() {
+    const text = els.chatInput.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    
+    addChatMessage('user', text);
     ws.send(text);
-    els.userInput.value = "";
-    updateStatus("THINKING");
+    els.chatInput.value = "";
+    setOrbState('thinking');
 }
 
-els.userInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendMessage(); });
-els.sendBtn.addEventListener("click", sendMessage);
+els.sendBtn.onclick = sendMessage;
+els.chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
 
-// --- Data Fetching ---
+// View Switching
+function switchView(viewId) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(v => v.classList.remove('active'));
+    
+    document.getElementById(`view-${viewId}`).classList.add('active');
+    document.getElementById(`nav-${viewId}`).classList.add('active');
 
-function renderSubtasks(tasks) {
-    els.subtaskList.innerHTML = "";
-    if (tasks.length === 0) {
-        els.subtaskList.innerHTML = "<div class='empty-state'>No active subtasks</div>";
-        return;
-    }
-    tasks.forEach(t => {
-        const div = document.createElement("div");
-        div.classList.add("subtask-item");
-        if (t.status === "completed") div.classList.add("completed");
-        div.innerText = t.description;
-        els.subtaskList.appendChild(div);
-    });
-}
-
-async function loadJournal() {
-    try {
-        const res = await fetch('/api/journal');
-        const data = await res.json();
-        const container = els.journalFeed;
-
-        if (!data.entries || data.entries.length === 0) {
-            container.innerHTML = '<div class="empty-state">No entries found.</div>';
-            return;
-        }
-
-        container.innerHTML = '';
-        data.entries.slice().reverse().forEach(entry => {
-            const div = document.createElement('div');
-            div.className = 'entry-card';
-
-            const time = new Date(entry.timestamp).toLocaleString();
-            let content = entry.entry;
-            let outcome = '';
-
-            try {
-                const p = JSON.parse(content);
-                content = p.lessons || content;
-                if (p.outcome) outcome = `<div class="outcome-tag" style="color:var(--${getOutcomeColor(p.outcome)})">${p.outcome}</div>`;
-                if (p.what_failed) content += `<br><br><span style="color:var(--red)">ERR:</span> ${p.what_failed}`;
-            } catch (e) { }
-
-            div.innerHTML = `
-                <div class="entry-time">${time}</div>
-                <div class="entry-body">${content}</div>
-                ${outcome}
-            `;
-            container.appendChild(div);
-        });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function getOutcomeColor(o) {
-    if (o === 'success') return 'green';
-    if (o === 'failure') return 'red';
-    return 'yellow';
-}
-
-async function fetchSystemInfo() {
-    try {
-        const res = await fetch("/api/system_info");
-        const data = await res.json();
-        if (data.error) return;
-
-        els.systemInfo.innerHTML = "";
-        Object.entries(data).forEach(([key, val]) => {
-            const div = document.createElement("div");
-            div.className = "info-item";
-            div.innerHTML = `<span class="label">${key.replace(/_/g, ' ')}</span><span class="value">${val}</span>`;
-            els.systemInfo.appendChild(div);
-        });
-    } catch (e) { console.error(e); }
-}
-
-function renderOllamaHealth(healthMap) {
-    els.ollamaHealth.innerHTML = "";
-    const entries = Object.entries(healthMap);
-    if (entries.length === 0) {
-        els.ollamaHealth.innerHTML = "<div class='empty-state'>No hosts configured</div>";
-        return;
-    }
-    entries.forEach(([host, ok]) => {
-        const div = document.createElement("div");
-        div.className = "status-item";
-        const cleanHost = host.replace('https://', '').replace('http://', '');
-        div.innerHTML = `
-            <span class="label">${cleanHost}</span>
-            <span class="value ${ok ? 'online' : 'offline'}">${ok ? 'ACTIVE' : 'OFFLINE'}</span>
-        `;
-        els.ollamaHealth.appendChild(div);
-    });
-}
-
-// --- Navigation ---
-
-function switchMainView(viewId) {
-    document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-
-    const targetView = document.getElementById(`view-${viewId}`);
-    if (targetView) targetView.classList.add('active');
-
-    const targetBtn = document.getElementById(`btn-${viewId}`);
-    if (targetBtn) targetBtn.classList.add('active');
-
-    if (viewId === 'graph') loadGraph();
-    if (viewId === 'settings') fetchSystemInfo();
-}
-
-function switchRightTab(tabId) {
-    document.querySelectorAll('.panel-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-
-    const targetTab = document.getElementById(`tab-${tabId}`);
-    if (targetTab) targetTab.classList.add('active');
-
-    const targetBtn = document.getElementById(`tab-btn-${tabId}`);
-    if (targetBtn) targetBtn.classList.add('active');
-
-    if (tabId === 'journal') loadJournal();
-}
-
-window.switchMainView = switchMainView;
-window.switchRightTab = switchRightTab;
-
-window.wipeMemory = () => {
-    if (confirm("PURGE ALL MEMORY?")) fetch('/api/memory/clear', { method: 'POST' }).then(() => fetchStatus());
-};
-
-window.fullReset = () => {
-    if (confirm("TOTAL SYSTEM RESET? All memories and goals will be lost.")) {
-        fetch('/api/reset', { method: 'POST' }).then(r => r.json()).then(data => {
-            addLog("SYSTEM: Full reset complete.", "success");
-            fetchStatus();
-        });
-    }
-};
-
-// --- Graph ---
-let network = null;
-let graphData = { nodes: new vis.DataSet(), edges: new vis.DataSet() };
-let lastMemoryCount = -1;
-
-function loadGraph(force = false) {
-    const container = document.getElementById('network-container');
-    if (!container) return;
-
-    fetch('/api/memory/graph').then(r => r.json()).then(data => {
-        if (!data.nodes) return;
-
-        if (!network) {
-            graphData.nodes.add(data.nodes);
-            graphData.edges.add(data.edges);
-            const options = {
-                nodes: {
-                    shape: 'dot',
-                    font: { color: '#888', size: 11, face: 'JetBrains Mono' },
-                    borderWidth: 2,
-                    shadow: true
-                },
-                edges: {
-                    color: { color: '#222', highlight: '#444' },
-                    arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                    smooth: { type: 'continuous' }
-                },
-                physics: {
-                    stabilization: false,
-                    barnesHut: { gravitationalConstant: -3000, springLength: 120 }
-                }
-            };
-            network = new vis.Network(container, graphData, options);
-        } else if (force) {
-            const existingNodeIds = new Set(graphData.nodes.getIds());
-            const newNodes = data.nodes.filter(n => !existingNodeIds.has(n.id));
-            if (newNodes.length > 0) graphData.nodes.add(newNodes);
-
-            const existingEdges = graphData.edges.get();
-            const existingEdgeKeys = new Set(existingEdges.map(e => `${e.from}|${e.to}|${e.label}`));
-            const newEdges = data.edges.filter(e => !existingEdgeKeys.has(`${e.from}|${e.to}|${e.label}`));
-            if (newEdges.length > 0) graphData.edges.add(newEdges);
-        }
-    });
+    if (viewId === 'knowledge') loadKnowledge();
+    if (viewId === 'system') fetchSystemInfo();
+    if (viewId === 'tools') fetchTools();
+    if (viewId === 'journal') fetchJournal();
+    if (viewId === 'fleet') fetchFleet();
+    if (viewId === 'files') fetchFiles();
 }
 
 async function fetchStatus() {
     try {
-        const res = await fetch("/api/status");
+        const res = await fetch('/api/status');
         const data = await res.json();
 
-        if (els.memoryCount) {
-            const count = data.memory_count || 0;
-            els.memoryCount.innerText = count;
-            if (count > lastMemoryCount) {
-                if (lastMemoryCount !== -1 && document.getElementById('view-graph').classList.contains('active')) {
-                    loadGraph(true);
-                }
-                lastMemoryCount = count;
-            }
-        }
-
-        if (data.ollama_health) renderOllamaHealth(data.ollama_health);
-
+        els.memCountBadge.innerText = data.memory_count || 0;
+        
         if (data.goal && data.goal.goal && data.goal.goal !== "Idle") {
-            els.goalTitle.innerText = data.goal.goal;
-            els.goalTitle.style.color = "var(--text-main)";
+            els.missionGoal.innerText = data.goal.goal;
             renderSubtasks(data.goal.subtasks || []);
         } else {
-            els.goalTitle.innerText = "No active goal";
-            els.goalTitle.style.color = "var(--text-dim)";
-            els.subtaskList.innerHTML = "<div class='empty-state'>System Idle</div>";
+            els.missionGoal.innerText = "Awaiting Mission";
+            els.missionSubtasks.innerHTML = "";
         }
-    } catch (e) {
-        console.error(e);
-    }
+        
+        // Update fleet if view is active
+        if (document.getElementById('view-fleet').classList.contains('active')) renderFleet(data.subagents);
+    } catch (e) { console.error(e); }
 }
 
+function renderSubtasks(tasks) {
+    els.missionSubtasks.innerHTML = "";
+    tasks.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'task-item' + (t.status === 'completed' ? ' done' : '');
+        div.innerText = t.description;
+        els.missionSubtasks.appendChild(div);
+    });
+}
+
+async function fetchTools() {
+    try {
+        const res = await fetch('/api/tools');
+        const data = await res.json();
+        if (!data.tools) return;
+
+        els.toolsGrid.innerHTML = data.tools.map(tool => `
+            <div class="tool-card glass">
+                <h3>${tool.name}</h3>
+                <p>${tool.description}</p>
+                <div class="tool-meta" style="margin-top:10px; font-size:0.7rem; color:var(--text-dim); font-family:var(--font-mono);">
+                    Params: ${Object.keys(tool.parameters.properties).join(', ') || 'none'}
+                </div>
+            </div>
+        `).join('');
+    } catch (e) { console.error(e); }
+}
+
+async function fetchJournal() {
+    try {
+        const res = await fetch('/api/journal');
+        const data = await res.json();
+        if (!data.entries) return;
+
+        els.journalFeed.innerHTML = data.entries.slice().reverse().map(entry => {
+            let content = entry.entry;
+            let outcome = '';
+            try {
+                const p = JSON.parse(content);
+                content = p.lessons || p.entry || content;
+                if (p.outcome) outcome = `<div class="outcome-badge" style="color:var(--${p.outcome === 'success' ? 'accent-blue' : 'fail'})">${p.outcome}</div>`;
+            } catch (e) {}
+
+            return `
+                <div class="journal-card glass">
+                    <div class="timestamp">${new Date(entry.timestamp).toLocaleString()}</div>
+                    <div class="entry">${content}</div>
+                    ${outcome}
+                </div>
+            `;
+        }).join('');
+    } catch (e) { console.error(e); }
+}
+
+async function fetchFleet() {
+    fetchStatus(); // Fleet is rendered within fetchStatus for live updates
+}
+
+function renderFleet(agents) {
+    if (!agents || agents.length === 0) {
+        els.fleetGrid.innerHTML = '<div class="msg sys" style="grid-column: 1/-1;">No subagents currently deployed.</div>';
+        return;
+    }
+
+    els.fleetGrid.innerHTML = agents.map(a => `
+        <div class="fleet-card glass">
+            <h3>AGENT ${a.id.substring(0, 8)}</h3>
+            <p>${a.goal}</p>
+            <div class="status ${a.status}">${a.status}</div>
+            <div style="margin-top:10px; font-size:0.75rem; color:var(--text-dim);">
+                Runtime: ${a.runtime_seconds}s
+            </div>
+        </div>
+    `).join('');
+}
+
+async function fetchFiles() {
+    try {
+        const res = await fetch('/api/files');
+        const data = await res.json();
+        if (!data.files) return;
+
+        els.filesList.innerHTML = data.files.map(f => `
+            <div class="file-row">
+                <div class="name">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                    ${f.path}
+                </div>
+                <div class="size">${(f.size / 1024).toFixed(1)} KB</div>
+            </div>
+        `).join('');
+    } catch (e) { console.error(e); }
+}
+
+async function fetchSystemInfo() {
+    try {
+        const res = await fetch('/api/system_info');
+        const data = await res.json();
+        els.systemInfo.innerHTML = Object.entries(data).map(([k, v]) => `
+            <div class="info-row">
+                <span class="label">${k.replace(/_/g, ' ')}</span>
+                <span class="val">${v}</span>
+            </div>
+        `).join('');
+
+        const res2 = await fetch('/api/status');
+        const data2 = await res2.json();
+        els.ollamaHealth.innerHTML = Object.entries(data2.ollama_health || {}).map(([host, ok]) => `
+            <div class="info-row">
+                <span class="label">${host.replace('https://', '').replace('http://', '')}</span>
+                <span class="val ${ok ? 'ok' : 'fail'}">${ok ? 'ONLINE' : 'OFFLINE'}</span>
+            </div>
+        `).join('');
+    } catch (e) {}
+}
+
+// Knowledge Graph
+let network = null;
+async function loadKnowledge() {
+    const container = document.getElementById('network-viz');
+    if (!container) return;
+    try {
+        const res = await fetch('/api/memory/graph');
+        const data = await res.json();
+        
+        const options = {
+            nodes: {
+                shape: 'dot',
+                size: 16,
+                font: { color: '#fff', size: 12, face: 'Plus Jakarta Sans' },
+                borderWidth: 2,
+                color: { background: '#14141e', border: '#4facfe', highlight: { background: '#4facfe', border: '#fff' } }
+            },
+            edges: {
+                color: { color: 'rgba(255,255,255,0.1)', highlight: 'rgba(255,255,255,0.4)' },
+                arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+            },
+            physics: { barnesHut: { gravitationalConstant: -2000 } }
+        };
+        
+        if (network) network.destroy();
+        network = new vis.Network(container, { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) }, options);
+    } catch (e) {}
+}
+
+// Global Actions
+window.wipeMemory = async () => {
+    if (confirm("Purge all neural nodes?")) {
+        await fetch('/api/memory/clear', { method: 'POST' });
+        fetchStatus();
+    }
+};
+
+window.fullReset = async () => {
+    if (confirm("Total system reset? All mission data will be lost.")) {
+        await fetch('/api/reset', { method: 'POST' });
+        location.reload();
+    }
+};
+
+window.switchView = switchView;
+
+// Init
+connect();
 setInterval(fetchStatus, 10000);
-fetchStatus();
