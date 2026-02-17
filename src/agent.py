@@ -16,16 +16,24 @@ except ImportError:
     MAX_AUTONOMY_STEPS = 5
 
 class Agent:
-    def __init__(self):
+    def __init__(self, data_dir: Optional[str] = None):
         logger.info("Initializing Agent Components...")
+        self.data_dir = data_dir
         self.models = ModelManager()
         self.memory = MemorySystem()
         self.tools = tool_registry
-        logger.info("Agent Ready.")
+        # If data_dir is provided, we should ensure tools use it.
+        # This is a bit tricky because tool_registry is global and uses global GOAL_FILE.
+        # We will modify tools.py to handle this.
+        logger.info(f"Agent Ready. Data Dir: {data_dir or 'default'}")
 
     def _clean_output(self, text: str) -> str:
         """Removes <think> tags, \\boxed{} wrappers, and other artifacts."""
         return clean_output(text)
+
+    def _get_context(self) -> Dict[str, Any]:
+        """Returns the execution context for tools."""
+        return {"data_dir": self.data_dir}
 
     def run(self, user_input: str, source: str = "cli") -> str:
         # 1. Retrieve Memory
@@ -41,7 +49,7 @@ class Agent:
         if intent in ("REASON", "TOOL"):
             cwd = os.getcwd()
             os_info = os.name
-            local_files = self.tools.execute("list_files", {"path": "."})
+            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context())
             env_context = f"LOCAL ENVIRONMENT:\n- OS: {os_info}\n- CWD: {cwd}\n- FILES: {local_files}\n"
         else:
             env_context = ""
@@ -61,7 +69,7 @@ class Agent:
                     # Standardize on tool_args; also accept legacy field names
                     tool_args = tool_data.get("tool_args") or tool_data.get("arguments") or tool_data.get("args") or {}
                     if tool_name:
-                        tool_result = self.tools.execute(tool_name, tool_args)
+                        tool_result = self.tools.execute(tool_name, tool_args, context=self._get_context())
 
         # 3. Build structured context for synthesis
         context_parts = []
@@ -202,7 +210,7 @@ class Agent:
                     f"Reflection (unparsed): {reflection_raw[:500]}",
                     {"type": "self_improvement"}
                 )
-                self.tools.execute("write_journal", {"entry": f"Reflection: {reflection_raw[:300]}"})
+                self.tools.execute("write_journal", {"entry": f"Reflection: {reflection_raw[:300]}"}, context=self._get_context())
                 return f"Reflection saved (raw): {reflection_raw[:200]}"
             
             # 1. Save Atomic Facts
@@ -231,7 +239,7 @@ class Agent:
             import json as _json
             self.tools.execute("write_journal", {
                 "entry": _json.dumps(reflection)
-            })
+            }, context=self._get_context())
             
             # 4. Auto-create tool if suggested
             suggested = reflection.get("suggested_tool")
@@ -241,7 +249,7 @@ class Agent:
                     "name": suggested["name"],
                     "description": suggested.get("description", "Auto-created tool"),
                     "code": suggested["code"]
-                })
+                }, context=self._get_context())
                 lesson_text += f" | Auto-created tool: {result}"
             
             print(f"[Reflect] {lesson_text}")
@@ -259,7 +267,7 @@ class Agent:
         all_results = []
         
         # 1. Check Goal
-        goal_json = self.tools.execute("get_goal", {})
+        goal_json = self.tools.execute("get_goal", {}, context=self._get_context())
         if "No active goal" in goal_json or "Error" in goal_json:
              # (Boredom logic skipped here for brevity, keeping same structure)
              return None
@@ -268,12 +276,12 @@ class Agent:
         goal_desc = goal_data.get("goal", "")
         
         # 2. Check Plan
-        plan_json = self.tools.execute("get_plan", {})
+        plan_json = self.tools.execute("get_plan", {}, context=self._get_context())
         if "No plan defined" in plan_json:
             logger.info(f"[Heartbeat] No plan for goal '{goal_desc[:30]}'. Generating...")
             steps = self.models.generate_plan(goal_desc)
-            self.tools.execute("set_plan", {"steps": steps})
-            plan_json = self.tools.execute("get_plan", {})
+            self.tools.execute("set_plan", {"steps": steps}, context=self._get_context())
+            plan_json = self.tools.execute("get_plan", {}, context=self._get_context())
         
         plan_data = json.loads(plan_json)
         steps = plan_data.get("steps", [])
@@ -289,7 +297,7 @@ class Agent:
         
         if next_step_idx == -1:
             logger.info("[Heartbeat] Plan finished. Marking goal complete.")
-            return self.tools.execute("complete_goal", {"result_summary": "All plan steps completed."})
+            return self.tools.execute("complete_goal", {"result_summary": "All plan steps completed."}, context=self._get_context())
 
         # 3. Execute next step
         logger.info(f"[Heartbeat] Executing Step {next_step_idx}: {next_step_desc}")
@@ -298,7 +306,7 @@ class Agent:
             # Inject Environmental Context to prevent "Generic AI" personality
             cwd = os.getcwd()
             os_info = os.name
-            local_files = self.tools.execute("list_files", {"path": "."})
+            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context())
             
             env_context = f"ENVIRONMENT:\n- OS: {os_info}\n- CWD: {cwd}\n- FILES: {local_files}\n"
             
@@ -316,14 +324,14 @@ class Agent:
                     tool = action.get("tool_name")
                     args = action.get("tool_args", {})
                     if tool:
-                        output = self.tools.execute(tool, args)
+                        output = self.tools.execute(tool, args, context=self._get_context())
                         all_results.append(f"{tool} -> {output[:100]}")
                         # If the tool reported an error, mark the step as failed instead of completed
                         if output.lower().startswith("error") or "exception" in output.lower():
                             step_failed = True
 
                 new_status = "failed" if step_failed else "completed"
-                self.tools.execute("update_plan_step", {"step_index": next_step_idx, "status": new_status})
+                self.tools.execute("update_plan_step", {"step_index": next_step_idx, "status": new_status}, context=self._get_context())
                 if step_failed:
                     logger.warning(f"[Heartbeat] Step {next_step_idx} marked as failed due to tool error.")
             
@@ -342,10 +350,17 @@ class Agent:
         self.memory.clear_short_term()  # Belt-and-suspenders: ensure in-memory list is also emptied
         
         # 2. Wipe Goal Files
-        from src.tools import GOAL_FILE, GOAL_STACK_FILE
-        data_dir = os.path.dirname(GOAL_FILE)
+        from src.tools import DEFAULT_DATA_DIR, GOAL_FILE_NAME, GOAL_STACK_FILE_NAME, PLAN_FILE_NAME
+        data_dir = self.data_dir or DEFAULT_DATA_DIR
+
+        files_to_wipe = [
+            os.path.join(data_dir, GOAL_FILE_NAME),
+            os.path.join(data_dir, GOAL_STACK_FILE_NAME),
+            os.path.join(data_dir, PLAN_FILE_NAME),
+            os.path.join(data_dir, "subtasks.json")
+        ]
         
-        for f in [GOAL_FILE, GOAL_STACK_FILE, os.path.join(data_dir, "subtasks.json")]:
+        for f in files_to_wipe:
             if os.path.exists(f):
                 try:
                     with open(f, 'w', encoding='utf-8') as file:

@@ -865,6 +865,7 @@ class TestAgentUnit(unittest.TestCase):
 
         with patch("src.agent.ModelManager"), patch("src.agent.MemorySystem"):
             agent = Agent.__new__(Agent)
+            agent.data_dir = None
             agent.memory = MemorySystem(db_path=tmp_dir)
             agent.models = MagicMock()
             from src.tools import registry
