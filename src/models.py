@@ -339,11 +339,11 @@ class ModelManager:
                 import re
                 content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             
+            import json
             # Extract list
             start = content.find('[')
             end = content.rfind(']')
             if start != -1 and end != -1:
-                import json
                 return json.loads(content[start:end+1])
         except Exception as e:
             logger.error(f"Plan generation failed: {e}")
