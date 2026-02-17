@@ -22,7 +22,10 @@ const els = {
     memCountBadge: document.getElementById('mem-count-badge'),
     systemInfo: document.getElementById('system-info'),
     ollamaHealth: document.getElementById('ollama-health'),
-    toolsGrid: document.getElementById('tools-grid')
+    toolsGrid: document.getElementById('tools-grid'),
+    journalFeed: document.getElementById('journal-feed'),
+    fleetGrid: document.getElementById('fleet-grid'),
+    filesList: document.getElementById('files-list')
 };
 
 function connect() {
@@ -75,6 +78,10 @@ function handleWsMessage(data) {
 
         case 'refresh_status':
             fetchStatus();
+            break;
+
+        case 'refresh_journal':
+            if (document.getElementById('view-journal').classList.contains('active')) fetchJournal();
             break;
     }
 }
@@ -131,6 +138,9 @@ function switchView(viewId) {
     if (viewId === 'knowledge') loadKnowledge();
     if (viewId === 'system') fetchSystemInfo();
     if (viewId === 'tools') fetchTools();
+    if (viewId === 'journal') fetchJournal();
+    if (viewId === 'fleet') fetchFleet();
+    if (viewId === 'files') fetchFiles();
 }
 
 async function fetchStatus() {
@@ -147,6 +157,9 @@ async function fetchStatus() {
             els.missionGoal.innerText = "Awaiting Mission";
             els.missionSubtasks.innerHTML = "";
         }
+
+        // Update fleet if view is active
+        if (document.getElementById('view-fleet').classList.contains('active')) renderFleet(data.subagents);
     } catch (e) { console.error(e); }
 }
 
@@ -173,6 +186,72 @@ async function fetchTools() {
                 <div class="tool-meta" style="margin-top:10px; font-size:0.7rem; color:var(--text-dim); font-family:var(--font-mono);">
                     Params: ${Object.keys(tool.parameters.properties).join(', ') || 'none'}
                 </div>
+            </div>
+        `).join('');
+    } catch (e) { console.error(e); }
+}
+
+async function fetchJournal() {
+    try {
+        const res = await fetch('/api/journal');
+        const data = await res.json();
+        if (!data.entries) return;
+
+        els.journalFeed.innerHTML = data.entries.slice().reverse().map(entry => {
+            let content = entry.entry;
+            let outcome = '';
+            try {
+                const p = JSON.parse(content);
+                content = p.lessons || p.entry || content;
+                if (p.outcome) outcome = `<div class="outcome-badge" style="color:var(--${p.outcome === 'success' ? 'accent-blue' : 'fail'})">${p.outcome}</div>`;
+            } catch (e) {}
+
+            return `
+                <div class="journal-card glass">
+                    <div class="timestamp">${new Date(entry.timestamp).toLocaleString()}</div>
+                    <div class="entry">${content}</div>
+                    ${outcome}
+                </div>
+            `;
+        }).join('');
+    } catch (e) { console.error(e); }
+}
+
+async function fetchFleet() {
+    fetchStatus(); // Fleet is rendered within fetchStatus for live updates
+}
+
+function renderFleet(agents) {
+    if (!agents || agents.length === 0) {
+        els.fleetGrid.innerHTML = '<div class="msg sys" style="grid-column: 1/-1;">No subagents currently deployed.</div>';
+        return;
+    }
+
+    els.fleetGrid.innerHTML = agents.map(a => `
+        <div class="fleet-card glass">
+            <h3>AGENT ${a.id.substring(0, 8)}</h3>
+            <p>${a.goal}</p>
+            <div class="status ${a.status}">${a.status}</div>
+            <div style="margin-top:10px; font-size:0.75rem; color:var(--text-dim);">
+                Runtime: ${a.runtime_seconds}s
+            </div>
+        </div>
+    `).join('');
+}
+
+async function fetchFiles() {
+    try {
+        const res = await fetch('/api/files');
+        const data = await res.json();
+        if (!data.files) return;
+
+        els.filesList.innerHTML = data.files.map(f => `
+            <div class="file-row">
+                <div class="name">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                    ${f.path}
+                </div>
+                <div class="size">${(f.size / 1024).toFixed(1)} KB</div>
             </div>
         `).join('');
     } catch (e) { console.error(e); }

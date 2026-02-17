@@ -256,6 +256,22 @@ async def get_tools():
     """Returns the registered tool schemas."""
     return JSONResponse({"tools": agent.tools.schemas})
 
+@app.get("/api/files")
+async def list_workspace_files():
+    """Lists files in the agent's workspace."""
+    workspace = os.path.abspath("workspace")
+    if not os.path.exists(workspace):
+        return JSONResponse({"files": []})
+
+    files = []
+    for root, _, filenames in os.walk(workspace):
+        for f in filenames:
+            rel_path = os.path.relpath(os.path.join(root, f), workspace)
+            size = os.path.getsize(os.path.join(root, f))
+            files.append({"path": rel_path, "size": size})
+
+    return JSONResponse({"files": files})
+
 @app.get("/api/system_info")
 async def get_system_info_api():
     try:
