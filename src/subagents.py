@@ -1,0 +1,109 @@
+import threading
+import uuid
+import time
+import os
+import json
+from typing import Dict, Any, List, Optional
+from .logger import get_logger
+
+logger = get_logger("subagents")
+
+class SubagentManager:
+    def __init__(self):
+        self.subagents: Dict[str, Dict[str, Any]] = {}
+
+    def spawn(self, goal: str) -> str:
+        subagent_id = str(uuid.uuid4())[:8]
+
+        self.subagents[subagent_id] = {
+            "id": subagent_id,
+            "goal": goal,
+            "status": "running",
+            "result": None,
+            "start_time": time.time(),
+            "end_time": None,
+            "steps_taken": 0
+        }
+
+        # Run in a separate thread
+        thread = threading.Thread(target=self._run_subagent, args=(subagent_id, goal))
+        thread.daemon = True
+        thread.start()
+
+        return subagent_id
+
+    def _run_subagent(self, subagent_id: str, goal: str):
+        # Set environment variable for this thread to isolate data
+        # Note: os.environ is global, so this might not work perfectly with multiple threads
+        # but for a simple implementation it might suffice if we are careful or use a better isolation.
+        # Better: Pass data_dir to Agent constructor.
+
+        data_dir = os.path.join("data", "subagents", subagent_id)
+        os.makedirs(data_dir, exist_ok=True)
+
+        try:
+            logger.info(f"Subagent {subagent_id} started with goal: {goal}")
+
+            # Import Agent here to avoid circular dependency
+            from .agent import Agent
+
+            # We need to tell the agent to use a specific data directory.
+            # Since Agent currently doesn't support this, we might need a small tweak to it.
+            # But let's see if we can just monkey-patch or use env vars.
+
+            # For now, let's assume we can pass it or it will be improved.
+            # I will improve Agent to take an optional data_dir.
+
+            subagent = Agent(data_dir=data_dir)
+
+            # Set its goal
+            subagent.tools.execute("set_goal", {"description": goal, "is_autonomous": True}, context=subagent._get_context())
+
+            # Run its loop
+            max_steps = 20 # Increased default max steps for subagents
+
+            while self.subagents[subagent_id]["steps_taken"] < max_steps:
+                result = subagent.heartbeat()
+                self.subagents[subagent_id]["steps_taken"] += 1
+
+                # Check if goal is completed
+                goal_info_raw = subagent.tools.execute("get_goal", {}, context=subagent._get_context())
+                try:
+                    goal_info = json.loads(goal_info_raw)
+                    if goal_info.get("status") == "completed":
+                        self.subagents[subagent_id]["status"] = "completed"
+                        self.subagents[subagent_id]["result"] = goal_info.get("result", "Goal reached.")
+                        break
+                except:
+                    pass
+
+                if not result or "Error" in result:
+                    # If it's a real error, we might want to stop
+                    if "Error" in result:
+                        logger.error(f"Subagent {subagent_id} encountered error: {result}")
+                        # Don't necessarily stop on one error, but maybe if it persists
+
+                time.sleep(2) # Give it some breathing room
+
+            if self.subagents[subagent_id]["status"] == "running":
+                self.subagents[subagent_id]["status"] = "finished"
+                self.subagents[subagent_id]["result"] = "Subagent reached maximum steps."
+
+        except Exception as e:
+            logger.error(f"Subagent {subagent_id} failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.subagents[subagent_id]["status"] = "failed"
+            self.subagents[subagent_id]["result"] = str(e)
+        finally:
+            self.subagents[subagent_id]["end_time"] = time.time()
+            logger.info(f"Subagent {subagent_id} ended with status: {self.subagents[subagent_id]['status']}")
+
+    def get_status(self, subagent_id: str) -> Optional[Dict[str, Any]]:
+        return self.subagents.get(subagent_id)
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        return list(self.subagents.values())
+
+# Global instance
+subagent_manager = SubagentManager()

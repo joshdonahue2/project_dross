@@ -6,7 +6,7 @@ import uuid
 import requests
 import platform
 import subprocess
-from typing import Callable, Dict, Any, List
+from typing import Callable, Dict, Any, List, Optional
 from datetime import datetime
 from .logger import get_logger
 
@@ -81,13 +81,18 @@ class ToolRegistry:
         """Returns JSON string of available tools."""
         return json.dumps(self.schemas, indent=2)
 
-    def execute(self, tool_name: str, args: Dict[str, Any]) -> str:
+    def execute(self, tool_name: str, args: Dict[str, Any], context: Dict[str, Any] = None) -> str:
         """Executes a registered tool."""
         if tool_name not in self.tools:
             return f"Error: Tool '{tool_name}' not found."
         
         try:
-            return str(self.tools[tool_name](**args))
+            func = self.tools[tool_name]
+            sig = inspect.signature(func)
+            # If the tool accepts a 'context' parameter, pass it.
+            if 'context' in sig.parameters:
+                return str(func(**args, context=context))
+            return str(func(**args))
         except Exception as e:
             return f"Error executing tool '{tool_name}': {str(e)}"
 
@@ -287,23 +292,35 @@ def verify_proposal(filename: str, content: str, test_command: str = "") -> str:
 
 # --- Goal Management (Autonomy) ---
 
-GOAL_FILE = os.path.abspath(os.path.join("data", "goal.json"))
-GOAL_STACK_FILE = os.path.abspath(os.path.join("data", "goal_stack.json"))
+DEFAULT_DATA_DIR = os.path.abspath("data")
+GOAL_FILE_NAME = "goal.json"
+GOAL_STACK_FILE_NAME = "goal_stack.json"
+
+# For backward compatibility with existing tests and scripts
+GOAL_FILE = os.path.join(DEFAULT_DATA_DIR, GOAL_FILE_NAME)
+GOAL_STACK_FILE = os.path.join(DEFAULT_DATA_DIR, GOAL_STACK_FILE_NAME)
+
+def _get_goal_files(context: Optional[Dict[str, Any]] = None):
+    data_dir = (context or {}).get("data_dir") or DEFAULT_DATA_DIR
+    goal_file = os.path.join(data_dir, GOAL_FILE_NAME)
+    stack_file = os.path.join(data_dir, GOAL_STACK_FILE_NAME)
+    os.makedirs(data_dir, exist_ok=True)
+    return goal_file, stack_file
 
 @registry.register
-def set_goal(description: str, is_autonomous: bool = False) -> str:
+def set_goal(description: str, is_autonomous: bool = False, context: Optional[Dict[str, Any]] = None) -> str:
     """
     Sets the agent's active autonomous goal.
     If an autonomous goal is already active and a USER goal (not autonomous) is set,
     the autonomous goal is pushed to a stack to be resumed later.
     """
     try:
-        os.makedirs(os.path.dirname(GOAL_FILE), exist_ok=True)
+        goal_file, stack_file = _get_goal_files(context)
         
         # Check current goal for stacking
         current_goal = None
-        if os.path.exists(GOAL_FILE):
-            with open(GOAL_FILE, 'r', encoding='utf-8') as f:
+        if os.path.exists(goal_file):
+            with open(goal_file, 'r', encoding='utf-8') as f:
                 try:
                     current_goal = json.load(f)
                 except:
@@ -314,14 +331,14 @@ def set_goal(description: str, is_autonomous: bool = False) -> str:
             if current_goal.get("is_autonomous"):
                 logger.info(f"Postponing autonomous goal: {current_goal.get('goal')}")
                 stack = []
-                if os.path.exists(GOAL_STACK_FILE):
-                    with open(GOAL_STACK_FILE, 'r', encoding='utf-8') as f:
+                if os.path.exists(stack_file):
+                    with open(stack_file, 'r', encoding='utf-8') as f:
                         try:
                             stack = json.load(f)
                         except:
                             pass
                 stack.append(current_goal)
-                with open(GOAL_STACK_FILE, 'w', encoding='utf-8') as f:
+                with open(stack_file, 'w', encoding='utf-8') as f:
                     json.dump(stack, f, indent=2)
 
         data = {
@@ -332,19 +349,20 @@ def set_goal(description: str, is_autonomous: bool = False) -> str:
             "subtasks": [],
             "log": []
         }
-        with open(GOAL_FILE, 'w', encoding='utf-8') as f:
+        with open(goal_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
         return f"Goal set: {description}"
     except Exception as e:
         return f"Error setting goal: {e}"
 
 @registry.register
-def get_goal() -> str:
+def get_goal(context: Optional[Dict[str, Any]] = None) -> str:
     """Returns the current active goal or 'No active goal'."""
     try:
-        if not os.path.exists(GOAL_FILE):
+        goal_file, _ = _get_goal_files(context)
+        if not os.path.exists(goal_file):
             return "No active goal."
-        with open(GOAL_FILE, 'r', encoding='utf-8') as f:
+        with open(goal_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         if data.get("status") != "active":
@@ -355,26 +373,27 @@ def get_goal() -> str:
         return f"Error reading goal: {e}"
 
 @registry.register
-def complete_goal(result_summary: str = "Goal reached.") -> str:
+def complete_goal(result_summary: str = "Goal reached.", context: Optional[Dict[str, Any]] = None) -> str:
     """Marks the current goal as complete."""
     try:
-        if not os.path.exists(GOAL_FILE):
+        goal_file, stack_file = _get_goal_files(context)
+        if not os.path.exists(goal_file):
             return "No active goal to complete."
-        with open(GOAL_FILE, 'r', encoding='utf-8') as f:
+        with open(goal_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
         data["status"] = "completed"
         data["completed_at"] = datetime.now().isoformat()
         data["result"] = result_summary
         
-        with open(GOAL_FILE, 'w', encoding='utf-8') as f:
+        with open(goal_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
             
         # Resumption Logic: Check if there's a goal to resume
         resumption_msg = ""
-        if os.path.exists(GOAL_STACK_FILE):
+        if os.path.exists(stack_file):
             try:
-                with open(GOAL_STACK_FILE, 'r', encoding='utf-8') as f:
+                with open(stack_file, 'r', encoding='utf-8') as f:
                     stack = json.load(f)
                 
                 if stack:
@@ -384,11 +403,11 @@ def complete_goal(result_summary: str = "Goal reached.") -> str:
                     resumed_goal["status"] = "active"
                     resumed_goal["resumed_at"] = datetime.now().isoformat()
                     
-                    with open(GOAL_FILE, 'w', encoding='utf-8') as f:
+                    with open(goal_file, 'w', encoding='utf-8') as f:
                         json.dump(resumed_goal, f, indent=2)
                     
                     # Update stack file
-                    with open(GOAL_STACK_FILE, 'w', encoding='utf-8') as f:
+                    with open(stack_file, 'w', encoding='utf-8') as f:
                         json.dump(stack, f, indent=2)
                     
                     resumption_msg = f" Resumed goal: {resumed_goal['goal']}"
@@ -400,30 +419,32 @@ def complete_goal(result_summary: str = "Goal reached.") -> str:
         return f"Error completing goal: {e}"
 
 @registry.register
-def add_subtask(**kwargs) -> str:
+def add_subtask(context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
     """Adds a subtask to the current goal. Args: subtask (str)"""
     try:
+        goal_file, _ = _get_goal_files(context)
         # Robust argument extraction
         description = kwargs.get('subtask') or kwargs.get('description')
         if not description:
             return "Error: Missing argument 'subtask' or 'description'."
 
-        if not os.path.exists(GOAL_FILE): return "No active goal."
-        with open(GOAL_FILE, 'r', encoding='utf-8') as f: data = json.load(f)
+        if not os.path.exists(goal_file): return "No active goal."
+        with open(goal_file, 'r', encoding='utf-8') as f: data = json.load(f)
         
         new_task = {"id": str(uuid.uuid4())[:8], "description": description, "status": "pending"}
         data.setdefault("subtasks", []).append(new_task)
         
-        with open(GOAL_FILE, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
+        with open(goal_file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
         return f"Subtask added: {description}"
     except Exception as e: return f"Error adding subtask: {e}"
 
 @registry.register
-def list_subtasks() -> str:
+def list_subtasks(context: Optional[Dict[str, Any]] = None) -> str:
     """Lists all subtasks for the current goal."""
     try:
-        if not os.path.exists(GOAL_FILE): return "No active goal."
-        with open(GOAL_FILE, 'r', encoding='utf-8') as f: data = json.load(f)
+        goal_file, _ = _get_goal_files(context)
+        if not os.path.exists(goal_file): return "No active goal."
+        with open(goal_file, 'r', encoding='utf-8') as f: data = json.load(f)
         
         tasks = data.get("subtasks", [])
         if not tasks: return "No subtasks defined."
@@ -436,11 +457,12 @@ def list_subtasks() -> str:
     except Exception as e: return f"Error listing subtasks: {e}"
 
 @registry.register
-def complete_subtask(subtask_id: str) -> str:
+def complete_subtask(subtask_id: str, context: Optional[Dict[str, Any]] = None) -> str:
     """Marks a subtask as complete by partial ID match."""
     try:
-        if not os.path.exists(GOAL_FILE): return "No active goal."
-        with open(GOAL_FILE, 'r', encoding='utf-8') as f: data = json.load(f)
+        goal_file, _ = _get_goal_files(context)
+        if not os.path.exists(goal_file): return "No active goal."
+        with open(goal_file, 'r', encoding='utf-8') as f: data = json.load(f)
         
         found = False
         for t in data.get("subtasks", []):
@@ -450,7 +472,7 @@ def complete_subtask(subtask_id: str) -> str:
                 break
         
         if found:
-            with open(GOAL_FILE, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
+            with open(goal_file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
             return f"Subtask {subtask_id} completed."
         return f"Subtask {subtask_id} not found."
     except Exception as e: return f"Error completing subtask: {e}"
@@ -475,6 +497,44 @@ def search_web(query: str) -> str:
         return "Error: duckduckgo-search not installed."
     except Exception as e:
         return f"Search Error: {e}"
+
+@registry.register
+def scrape_website(url: str) -> str:
+    """
+    Fetches the content of a website and returns the cleaned text.
+    Useful for reading specific articles or documentation.
+    """
+    try:
+        from bs4 import BeautifulSoup
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Remove script and style elements
+        for script_or_style in soup(["script", "style"]):
+            script_or_style.decompose()
+
+        # Get text
+        text = soup.get_text(separator='\n')
+
+        # Break into lines and remove leading and trailing whitespace
+        lines = (line.strip() for line in text.splitlines())
+        # Break multi-headlines into a line each
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        # Drop blank lines
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+
+        # Limit output length to avoid context overflow, but keep it substantial
+        return text[:10000]
+    except ImportError:
+        return "Error: beautifulsoup4 not installed."
+    except Exception as e:
+        return f"Scraping Error: {str(e)}"
 
 @registry.register
 def run_python(code: str) -> str:
@@ -521,6 +581,7 @@ def run_python(code: str) -> str:
 
 # --- Self-Improvement Tools ---
 
+SKILLS_DIR = os.path.abspath(os.path.join("src", "skills"))
 CUSTOM_TOOLS_DIR = os.path.abspath(os.path.join("data", "custom_tools"))
 JOURNAL_FILE = os.path.abspath(os.path.join("data", "journal.jsonl"))
 
@@ -605,46 +666,64 @@ def read_journal(last_n: int = 5) -> str:
         return f"Error reading journal: {e}"
 
 
-def load_custom_tools():
-    """Loads all custom tools from data/custom_tools/ on startup."""
-    if not os.path.exists(CUSTOM_TOOLS_DIR):
-        return
+def load_tools_from_dir(directory: str, label: str = "custom"):
+    """Loads tools from a directory on startup."""
+    if not os.path.exists(directory):
+        return 0
     
     loaded = 0
-    for filename in os.listdir(CUSTOM_TOOLS_DIR):
-        if not filename.endswith(".py"):
+    for filename in os.listdir(directory):
+        if not filename.endswith(".py") or filename == "__init__.py":
             continue
         
         tool_name = filename[:-3]  # Remove .py
-        filepath = os.path.join(CUSTOM_TOOLS_DIR, filename)
+        filepath = os.path.join(directory, filename)
         
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 code = f.read()
             
-            namespace = {"os": os, "json": json, "datetime": datetime}
+            namespace = {"os": os, "json": json, "datetime": datetime, "requests": requests}
             exec(compile(code, filepath, 'exec'), namespace)
             
-            if tool_name in namespace and callable(namespace[tool_name]):
-                func = namespace[tool_name]
-                # Extract docstring from the module-level docstring
+            # Check for specific function name or all functions if it's a skill
+            potential_tools = []
+            if label == "skill":
+                # For skills, we register all callable functions that don't start with _
+                # and are actually functions (not classes or types like Dict)
+                import types
+                for name, attr in namespace.items():
+                    if isinstance(attr, types.FunctionType) and not name.startswith("_"):
+                        potential_tools.append((name, attr))
+            else:
+                if tool_name in namespace and callable(namespace[tool_name]):
+                    potential_tools.append((tool_name, namespace[tool_name]))
+
+            for name, func in potential_tools:
+                # Extract docstring from the module-level docstring if missing
                 if not func.__doc__:
-                    # Try module docstring
                     lines = code.strip().split('\n')
                     if lines[0].startswith('"""'):
                         func.__doc__ = lines[0].strip('"')
                 
                 registry.register(func)
                 loaded += 1
-                logger.info(f"Loaded custom tool: {tool_name}")
+                logger.info(f"Loaded {label} tool: {name}")
         except Exception as e:
-            logger.error(f"Failed to load custom tool '{tool_name}': {e}")
+            logger.error(f"Failed to load {label} tool from '{filename}': {e}")
     
-    if loaded:
-        logger.info(f"Loaded {loaded} custom tool(s).")
+    return loaded
 
-# Auto-load custom tools on import
-load_custom_tools()
+def load_all_external_tools():
+    """Loads tools from skills and custom tools directories."""
+    skills_count = load_tools_from_dir(SKILLS_DIR, label="skill")
+    custom_count = load_tools_from_dir(CUSTOM_TOOLS_DIR, label="custom")
+
+    if skills_count or custom_count:
+        logger.info(f"Total tools loaded: {skills_count} skills, {custom_count} custom.")
+
+# Auto-load tools on import
+load_all_external_tools()
 
 def _escape_html(text: str) -> str:
     """Escape HTML special characters for Telegram HTML parse mode."""
@@ -726,7 +805,15 @@ def check_telegram_messages(limit: int = 5) -> str:
 
 # --- Logging & Planning Tools ---
 
-PLAN_FILE = os.path.abspath(os.path.join("data", "plan.json"))
+PLAN_FILE_NAME = "plan.json"
+
+# For backward compatibility
+PLAN_FILE = os.path.join(DEFAULT_DATA_DIR, PLAN_FILE_NAME)
+
+def _get_plan_file(context: Optional[Dict[str, Any]] = None):
+    data_dir = (context or {}).get("data_dir") or DEFAULT_DATA_DIR
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, PLAN_FILE_NAME)
 
 @registry.register
 def view_logs(lines: int = 50) -> str:
@@ -760,44 +847,85 @@ def analyze_logs(query: str = "ERROR") -> str:
         return f"Error searching logs: {e}"
 
 @registry.register
-def set_plan(steps: List[str]) -> str:
+def set_plan(steps: List[str], context: Optional[Dict[str, Any]] = None) -> str:
     """Sets a multi-step execution plan for the current goal."""
     try:
-        os.makedirs(os.path.dirname(PLAN_FILE), exist_ok=True)
+        plan_file = _get_plan_file(context)
         data = {
             "steps": [{"description": s, "status": "pending"} for s in steps],
             "created_at": datetime.now().isoformat()
         }
-        with open(PLAN_FILE, 'w', encoding='utf-8') as f:
+        with open(plan_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
         return f"Plan set with {len(steps)} steps."
     except Exception as e:
         return f"Error setting plan: {e}"
 
 @registry.register
-def get_plan() -> str:
+def get_plan(context: Optional[Dict[str, Any]] = None) -> str:
     """Returns the current execution plan."""
-    if not os.path.exists(PLAN_FILE):
+    plan_file = _get_plan_file(context)
+    if not os.path.exists(plan_file):
         return "No plan defined."
     try:
-        with open(PLAN_FILE, 'r', encoding='utf-8') as f:
+        with open(plan_file, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
         return f"Error reading plan: {e}"
 
 @registry.register
-def update_plan_step(step_index: int, status: str = "completed") -> str:
+def update_plan_step(step_index: int, status: str = "completed", context: Optional[Dict[str, Any]] = None) -> str:
     """Updates the status of a specific plan step."""
-    if not os.path.exists(PLAN_FILE):
+    plan_file = _get_plan_file(context)
+    if not os.path.exists(plan_file):
         return "No plan to update."
     try:
-        with open(PLAN_FILE, 'r', encoding='utf-8') as f:
+        with open(plan_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         if 0 <= step_index < len(data["steps"]):
             data["steps"][step_index]["status"] = status
-            with open(PLAN_FILE, 'w', encoding='utf-8') as f:
+            with open(plan_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             return f"Step {step_index} updated to {status}."
         return "Invalid step index."
     except Exception as e:
         return f"Error updating plan: {e}"
+
+# --- Subagent Tools ---
+
+@registry.register
+def spawn_subagent(goal: str) -> str:
+    """
+    Spawns a new autonomous subagent to work on a specific goal.
+    Returns the subagent ID.
+    """
+    try:
+        from .subagents import subagent_manager
+        subagent_id = subagent_manager.spawn(goal)
+        return f"Subagent {subagent_id} spawned to handle goal: {goal}"
+    except Exception as e:
+        return f"Error spawning subagent: {e}"
+
+@registry.register
+def check_subagent_status(subagent_id: str) -> str:
+    """Checks the status and result of a spawned subagent."""
+    try:
+        from .subagents import subagent_manager
+        status = subagent_manager.get_status(subagent_id)
+        if not status:
+            return f"Subagent {subagent_id} not found."
+        return json.dumps(status, indent=2)
+    except Exception as e:
+        return f"Error checking subagent: {e}"
+
+@registry.register
+def list_subagents() -> str:
+    """Lists all active and finished subagents."""
+    try:
+        from .subagents import subagent_manager
+        all_subs = subagent_manager.list_all()
+        if not all_subs:
+            return "No subagents spawned."
+        return json.dumps(all_subs, indent=2)
+    except Exception as e:
+        return f"Error listing subagents: {e}"

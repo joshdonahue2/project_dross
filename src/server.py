@@ -298,10 +298,18 @@ async def get_status():
     except Exception:
         ollama_health = {}
 
+    # Get subagents status
+    try:
+        from src.subagents import subagent_manager
+        subagents = subagent_manager.list_all()
+    except Exception:
+        subagents = []
+
     return JSONResponse({
         "goal": goal_data,
         "memory_count": memory_count,
         "ollama_health": ollama_health,
+        "subagents": subagents,
         "uptime": "Active"
     })
 
