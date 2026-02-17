@@ -292,11 +292,27 @@ async def get_status():
     except Exception:
         memory_count = 0
     
+    # Check Ollama health
+    try:
+        ollama_health = agent.models.check_health()
+    except Exception:
+        ollama_health = {}
+
     return JSONResponse({
         "goal": goal_data,
         "memory_count": memory_count,
+        "ollama_health": ollama_health,
         "uptime": "Active"
     })
+
+@app.get("/api/system_info")
+async def get_system_info_api():
+    """Returns basic system hardware info."""
+    try:
+        info_json = agent.tools.execute("get_system_info", {})
+        return JSONResponse(json.loads(info_json))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/memory/graph")
 async def get_memory_graph():

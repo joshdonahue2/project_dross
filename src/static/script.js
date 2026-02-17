@@ -2,7 +2,15 @@
    DROSS Command Center v3.2 - Script
    ============================================================ */
 
-// Build WebSocket URL dynamically so it works on any host/port, not just localhost:8001
+// Configure Marked for security and line breaks
+marked.setOptions({
+    gfm: true,
+    breaks: true,
+    sanitize: false, // We'll trust the agent output but ideally sanitize if it were a public app
+    headerIds: false,
+    mangle: false
+});
+
 const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
 
 let ws;
@@ -13,9 +21,9 @@ function connectWebSocket() {
     ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
 
     ws.onopen = () => {
-        reconnectDelay = 1000; // Reset backoff on successful connection
+        reconnectDelay = 1000;
         clearTimeout(reconnectTimer);
-        addLog("SYSTEM: Uplink established.");
+        addLog("SYSTEM: Uplink established.", "success");
         updateStatus("ONLINE");
         if (els.connectionDot) els.connectionDot.className = "status-indicator online";
         fetchStatus();
@@ -30,8 +38,11 @@ function connectWebSocket() {
         } else if (data.type === "status") {
             updateStatus(data.status.toUpperCase());
         } else if (data.type === "log") {
-            addLog(data.content);
-            // Specialized handling — server sends "⚡ Heartbeat: ..." prefix
+            let type = "system";
+            if (data.content.toLowerCase().includes("error")) type = "error";
+            if (data.content.includes("⚡")) type = "success";
+            addLog(data.content, type);
+
             if (data.content.includes("Heartbeat:")) {
                 const thought = data.content.replace(/.*Heartbeat:\s*(Autonomy:\s*)?/, "").trim();
                 if (thought) addThought(thought);
@@ -46,18 +57,13 @@ function connectWebSocket() {
     };
 
     ws.onclose = () => {
-        addLog(`SYSTEM: Uplink lost. Reconnecting in ${reconnectDelay / 1000}s...`);
+        addLog(`SYSTEM: Uplink lost. Reconnecting in ${reconnectDelay / 1000}s...`, "error");
         updateStatus("OFFLINE");
         if (els.connectionDot) els.connectionDot.className = "status-indicator";
-        // Exponential backoff capped at 30s
         reconnectTimer = setTimeout(() => {
             reconnectDelay = Math.min(reconnectDelay * 2, 30000);
             connectWebSocket();
         }, reconnectDelay);
-    };
-
-    ws.onerror = () => {
-        // onclose fires after onerror, so just swallow this to avoid duplicate handling
     };
 }
 
@@ -74,49 +80,51 @@ const els = {
     memoryCount: document.getElementById("memory-count"),
     connectionDot: document.getElementById("connection-dot"),
     thoughtStream: document.getElementById("proactive-stream"),
-    journalFeed: document.getElementById("journal-entries")
+    journalFeed: document.getElementById("journal-entries"),
+    ollamaHealth: document.getElementById("ollama-health-grid"),
+    systemInfo: document.getElementById("system-info-box")
 };
 
-// Kick off connection (defined above, called here so `els` is ready)
 connectWebSocket();
 
 // --- Core UI Functions ---
 
 function updateStatus(status) {
     els.statusText.innerText = status;
-    els.statusPill.className = "status-pill"; // Reset
+    els.statusPill.className = "status-pill";
 
     if (status === "THINKING") {
-        els.statusPill.style.borderColor = "var(--yellow)";
         els.statusPill.style.color = "var(--yellow)";
-        els.statusPill.querySelector('.dot').style.background = "var(--yellow)";
+        els.statusPill.style.borderColor = "rgba(255, 215, 0, 0.2)";
     } else if (status === "SPEAKING") {
-        els.statusPill.style.borderColor = "var(--cyan)";
         els.statusPill.style.color = "var(--cyan)";
-        els.statusPill.querySelector('.dot').style.background = "var(--cyan)";
+        els.statusPill.style.borderColor = "rgba(0, 243, 255, 0.2)";
     } else if (status === "OFFLINE") {
-        els.statusPill.style.borderColor = "var(--red)";
         els.statusPill.style.color = "var(--red)";
-        els.statusPill.querySelector('.dot').style.background = "var(--red)";
+        els.statusPill.style.borderColor = "rgba(255, 49, 49, 0.2)";
     } else {
-        els.statusPill.style.borderColor = "#333";
         els.statusPill.style.color = "var(--green)";
-        els.statusPill.querySelector('.dot').style.background = "var(--green)";
+        els.statusPill.style.borderColor = "rgba(0, 255, 136, 0.1)";
     }
 }
 
 function addMessage(role, text) {
     const div = document.createElement("div");
     div.classList.add("message", role);
-    div.innerHTML = text.replace(/\n/g, "<br>");
+
+    if (role === "assistant") {
+        div.innerHTML = marked.parse(text);
+    } else {
+        div.innerText = text;
+    }
+
     els.chatWindow.appendChild(div);
     els.chatWindow.scrollTop = els.chatWindow.scrollHeight;
 }
 
-function addLog(text) {
+function addLog(text, type = "system") {
     const div = document.createElement("div");
-    div.classList.add("log-line");
-    // Timestamp
+    div.classList.add("log-line", type);
     const time = new Date().toLocaleTimeString('en-US', { hour12: false });
     div.innerText = `[${time}] ${text}`;
     els.logConsole.appendChild(div);
@@ -129,7 +137,6 @@ function addThought(text) {
     const div = document.createElement("div");
     div.classList.add("thought-entry");
     div.innerText = text;
-    // Prepend to show newest at top
     els.thoughtStream.prepend(div);
     if (els.thoughtStream.children.length > 20) els.thoughtStream.removeChild(els.thoughtStream.lastChild);
 }
@@ -138,7 +145,7 @@ function sendMessage() {
     const text = els.userInput.value.trim();
     if (!text) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addLog("SYSTEM: Cannot send — uplink not connected.");
+        addLog("SYSTEM: Cannot send — uplink not connected.", "error");
         return;
     }
     addMessage("user", text);
@@ -152,12 +159,10 @@ els.sendBtn.addEventListener("click", sendMessage);
 
 // --- Data Fetching ---
 
-// fetchStatus moved to the bottom with graph reactive logic
-
 function renderSubtasks(tasks) {
     els.subtaskList.innerHTML = "";
     if (tasks.length === 0) {
-        els.subtaskList.innerHTML = "<div class='empty-state'>No subtasks</div>";
+        els.subtaskList.innerHTML = "<div class='empty-state'>No active subtasks</div>";
         return;
     }
     tasks.forEach(t => {
@@ -168,11 +173,6 @@ function renderSubtasks(tasks) {
         els.subtaskList.appendChild(div);
     });
 }
-
-// Poll
-setInterval(fetchStatus, 5000);
-
-// --- Journal ---
 
 async function loadJournal() {
     try {
@@ -186,7 +186,7 @@ async function loadJournal() {
         }
 
         container.innerHTML = '';
-        data.entries.reverse().forEach(entry => {
+        data.entries.slice().reverse().forEach(entry => {
             const div = document.createElement('div');
             div.className = 'entry-card';
 
@@ -198,7 +198,7 @@ async function loadJournal() {
                 const p = JSON.parse(content);
                 content = p.lessons || content;
                 if (p.outcome) outcome = `<div class="outcome-tag" style="color:var(--${getOutcomeColor(p.outcome)})">${p.outcome}</div>`;
-                if (p.what_failed) content += `<br><br>FAILED: ${p.what_failed}`;
+                if (p.what_failed) content += `<br><br><span style="color:var(--red)">ERR:</span> ${p.what_failed}`;
             } catch (e) { }
 
             div.innerHTML = `
@@ -219,55 +219,82 @@ function getOutcomeColor(o) {
     return 'yellow';
 }
 
+async function fetchSystemInfo() {
+    try {
+        const res = await fetch("/api/system_info");
+        const data = await res.json();
+        if (data.error) return;
+
+        els.systemInfo.innerHTML = "";
+        Object.entries(data).forEach(([key, val]) => {
+            const div = document.createElement("div");
+            div.className = "info-item";
+            div.innerHTML = `<span class="label">${key.replace(/_/g, ' ')}</span><span class="value">${val}</span>`;
+            els.systemInfo.appendChild(div);
+        });
+    } catch (e) { console.error(e); }
+}
+
+function renderOllamaHealth(healthMap) {
+    els.ollamaHealth.innerHTML = "";
+    const entries = Object.entries(healthMap);
+    if (entries.length === 0) {
+        els.ollamaHealth.innerHTML = "<div class='empty-state'>No hosts configured</div>";
+        return;
+    }
+    entries.forEach(([host, ok]) => {
+        const div = document.createElement("div");
+        div.className = "status-item";
+        const cleanHost = host.replace('https://', '').replace('http://', '');
+        div.innerHTML = `
+            <span class="label">${cleanHost}</span>
+            <span class="value ${ok ? 'online' : 'offline'}">${ok ? 'ACTIVE' : 'OFFLINE'}</span>
+        `;
+        els.ollamaHealth.appendChild(div);
+    });
+}
+
 // --- Navigation ---
 
 function switchMainView(viewId) {
     document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
 
-    document.getElementById(`view-${viewId}`).classList.add('active');
-    // Find button that triggered this? Simplified: just visually activate correct one based on viewId
-    // (Skipping simpler logic for brevity, assuming user clicks buttons)
+    const targetView = document.getElementById(`view-${viewId}`);
+    if (targetView) targetView.classList.add('active');
 
-    // Hardcoded active state logic for icons
-    const btns = document.querySelectorAll('.nav-btn');
-    if (viewId === 'dashboard') btns[0].classList.add('active');
-    if (viewId === 'graph') {
-        btns[1].classList.add('active');
-        loadGraph();
-    }
-    if (viewId === 'settings') btns[2].classList.add('active');
+    const targetBtn = document.getElementById(`btn-${viewId}`);
+    if (targetBtn) targetBtn.classList.add('active');
+
+    if (viewId === 'graph') loadGraph();
+    if (viewId === 'settings') fetchSystemInfo();
 }
 
 function switchRightTab(tabId) {
     document.querySelectorAll('.panel-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
 
-    document.getElementById(`tab-${tabId}`).classList.add('active');
+    const targetTab = document.getElementById(`tab-${tabId}`);
+    if (targetTab) targetTab.classList.add('active');
 
-    // Find button
-    const tabs = document.querySelectorAll('.tab-btn');
-    if (tabId === 'mission') tabs[0].classList.add('active');
-    if (tabId === 'logs') tabs[1].classList.add('active');
-    if (tabId === 'journal') {
-        tabs[2].classList.add('active');
-        loadJournal();
-    }
+    const targetBtn = document.getElementById(`tab-btn-${tabId}`);
+    if (targetBtn) targetBtn.classList.add('active');
+
+    if (tabId === 'journal') loadJournal();
 }
 
-// Expose global
 window.switchMainView = switchMainView;
 window.switchRightTab = switchRightTab;
+
 window.wipeMemory = () => {
-    if (confirm("WIPE MEMORY? (This only clears short/long term facts)")) fetch('/api/memory/clear', { method: 'POST' }).then(() => fetchStatus());
+    if (confirm("PURGE ALL MEMORY?")) fetch('/api/memory/clear', { method: 'POST' }).then(() => fetchStatus());
 };
 
 window.fullReset = () => {
-    if (confirm("FULL SYSTEM RESET? This will wipe ALL memories, goals, and stacks. Logs and Journal will persist.")) {
+    if (confirm("TOTAL SYSTEM RESET? All memories and goals will be lost.")) {
         fetch('/api/reset', { method: 'POST' }).then(r => r.json()).then(data => {
-            alert(data.status);
+            addLog("SYSTEM: Full reset complete.", "success");
             fetchStatus();
-            loadJournal();
         });
     }
 };
@@ -288,23 +315,28 @@ function loadGraph(force = false) {
             graphData.nodes.add(data.nodes);
             graphData.edges.add(data.edges);
             const options = {
-                nodes: { shape: 'dot', size: 6, font: { color: '#888', size: 10, face: 'JetBrains Mono' }, borderWidth: 1, color: { background: '#333', border: '#555' } },
+                nodes: {
+                    shape: 'dot',
+                    font: { color: '#888', size: 11, face: 'JetBrains Mono' },
+                    borderWidth: 2,
+                    shadow: true
+                },
                 edges: {
-                    color: { color: '#444' },
+                    color: { color: '#222', highlight: '#444' },
                     arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                    font: { size: 8, align: 'middle', color: '#666' },
                     smooth: { type: 'continuous' }
                 },
-                physics: { stabilization: false, barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 100 } }
+                physics: {
+                    stabilization: false,
+                    barnesHut: { gravitationalConstant: -3000, springLength: 120 }
+                }
             };
             network = new vis.Network(container, graphData, options);
         } else if (force) {
-            // Smart update: add any nodes not already in the dataset
             const existingNodeIds = new Set(graphData.nodes.getIds());
             const newNodes = data.nodes.filter(n => !existingNodeIds.has(n.id));
             if (newNodes.length > 0) graphData.nodes.add(newNodes);
 
-            // Edges from the API have no id field — deduplicate by composite from+to+label key
             const existingEdges = graphData.edges.get();
             const existingEdgeKeys = new Set(existingEdges.map(e => `${e.from}|${e.to}|${e.label}`));
             const newEdges = data.edges.filter(e => !existingEdgeKeys.has(`${e.from}|${e.to}|${e.label}`));
@@ -313,18 +345,14 @@ function loadGraph(force = false) {
     });
 }
 
-// In fetchStatus, detect memory changes
 async function fetchStatus() {
     try {
         const res = await fetch("/api/status");
         const data = await res.json();
 
-        // Stats
         if (els.memoryCount) {
             const count = data.memory_count || 0;
             els.memoryCount.innerText = count;
-
-            // Auto-refresh graph if count increased and view is active
             if (count > lastMemoryCount) {
                 if (lastMemoryCount !== -1 && document.getElementById('view-graph').classList.contains('active')) {
                     loadGraph(true);
@@ -333,7 +361,8 @@ async function fetchStatus() {
             }
         }
 
-        // Goal
+        if (data.ollama_health) renderOllamaHealth(data.ollama_health);
+
         if (data.goal && data.goal.goal && data.goal.goal !== "Idle") {
             els.goalTitle.innerText = data.goal.goal;
             els.goalTitle.style.color = "var(--text-main)";
@@ -347,3 +376,6 @@ async function fetchStatus() {
         console.error(e);
     }
 }
+
+setInterval(fetchStatus, 10000);
+fetchStatus();
