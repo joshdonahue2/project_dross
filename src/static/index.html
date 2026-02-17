@@ -4,168 +4,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DROSS Command // v3.2</title>
+    <title>DROSS // Ether</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 
-<body>
+<body class="ether-theme">
+    <!-- Nebula Background -->
+    <div class="nebula-bg"></div>
+    <div class="glass-overlay"></div>
+
     <div class="app-shell">
-        <!-- 1. LEFT SIDEBAR (Icon Rail) -->
-        <nav class="sidebar">
-            <div class="logo-box">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                </svg>
+        <!-- Sidebar -->
+        <nav class="sidebar glass">
+            <div class="nexus-logo">
+                <div class="orb-mini"></div>
+                <span class="logo-text">DROSS</span>
             </div>
 
-            <div class="nav-items">
-                <button class="nav-btn active" id="btn-dashboard" onclick="switchMainView('dashboard')" title="Command Center">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                        <line x1="8" y1="21" x2="16" y2="21" />
-                        <line x1="12" y1="17" x2="12" y2="21" />
-                    </svg>
+            <div class="nav-links">
+                <button class="nav-item active" onclick="switchView('nexus')" id="nav-nexus">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                    <span>Nexus</span>
                 </button>
-                <button class="nav-btn" id="btn-graph" onclick="switchMainView('graph')" title="Neural Graph">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="18" cy="5" r="3" />
-                        <circle cx="6" cy="12" r="3" />
-                        <circle cx="18" cy="19" r="3" />
-                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                    </svg>
+                <button class="nav-item" onclick="switchView('knowledge')" id="nav-knowledge">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    <span>Knowledge</span>
                 </button>
-                <button class="nav-btn bottom" id="btn-settings" onclick="switchMainView('settings')" title="System Config">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3" />
-                        <path
-                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
+                <button class="nav-item" onclick="switchView('tools')" id="nav-tools">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1 2.83 0l.3.3a2 2 0 0 1 0 2.83l-3.77 3.77a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 0 1.4l-5.86 5.86a2 2 0 0 1-2.83 0l-8.48-8.48a2 2 0 0 1 0-2.83l5.86-5.86z"/></svg>
+                    <span>Tools</span>
+                </button>
+                <button class="nav-item" onclick="switchView('system')" id="nav-system">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span>System</span>
                 </button>
             </div>
 
-            <div class="status-indicator online" id="connection-dot"></div>
+            <div class="system-mini-stats">
+                <div class="mini-stat">
+                    <span class="dot green"></span>
+                    <span id="mem-count-badge">0</span> nodes
+                </div>
+            </div>
         </nav>
 
-        <!-- 2. MAIN STAGE (Center Panel) -->
-        <main class="main-stage">
-
-            <!-- HEADER INFO BAR -->
-            <header class="info-bar">
-                <div class="breadcrumbs">DROSS <span class="dim">/</span> CMD <span class="tag-version">v3.2</span>
-                </div>
-                <div class="status-pill" id="agent-status-pill">
-                    <div class="dot blinking"></div>
-                    <span id="agent-status-text">ONLINE</span>
-                </div>
-                <div class="memory-stat">
-                    <span id="memory-count">--</span> NODES
-                </div>
-            </header>
-
-            <!-- VIEW CONTAINER -->
-            <div class="view-container">
-
-                <!-- VIEW: DASHBOARD (Chat + Terminal) -->
-                <div id="view-dashboard" class="view active">
-                    <div class="chat-wrapper" id="chat-window">
-                        <div class="sys-msg">System Initialized. Access Level: ADMIN. Host Uplink: STABLE.</div>
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <!-- View: Nexus (Default) -->
+            <div id="view-nexus" class="view active">
+                <div class="nexus-core">
+                    <div class="nexus-visualizer">
+                        <div id="nexus-orb" class="orb idle">
+                            <div class="orb-inner"></div>
+                            <div class="orb-glow"></div>
+                            <div class="orb-rings">
+                                <div class="ring"></div>
+                                <div class="ring"></div>
+                            </div>
+                        </div>
+                        <div class="nexus-status-label">
+                            <h2 id="nexus-state">Core Online</h2>
+                            <p id="nexus-activity">Awaiting interaction...</p>
+                        </div>
                     </div>
 
-                    <!-- INPUT DECK -->
-                    <div class="input-deck">
-                        <div class="input-box">
-                            <span class="prompt-char">></span>
-                            <input type="text" id="user-input" placeholder="Initiate sequence..." autocomplete="off">
-                            <button id="send-btn">EXECUTE</button>
+                    <div class="nexus-chat glass">
+                        <div id="chat-messages" class="chat-flow">
+                            <div class="msg sys">Welcome to DROSS Ether. System ready.</div>
                         </div>
-                        <div class="input-hints">
-                            <span class="hint">Type 'help' for commands</span>
-                            <span class="hint">/learn after response to save</span>
+                        <div class="chat-input-area">
+                            <div class="input-wrapper">
+                                <input type="text" id="chat-input" placeholder="Communicate..." autocomplete="off">
+                                <button id="send-btn">
+                                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- VIEW: GRAPH -->
-                <div id="view-graph" class="view">
-                    <div id="network-container"></div>
+                <!-- Mission Sidebar (Floating) -->
+                <aside class="mission-side glass">
+                    <div class="section-title">Active Goal</div>
+                    <div id="mission-goal" class="goal-highlight">Idle</div>
+                    <div id="mission-subtasks" class="subtask-list">
+                        <!-- Subtasks populate here -->
+                    </div>
+
+                    <div class="section-title" style="margin-top: 30px;">Live Stream</div>
+                    <div id="live-stream" class="stream-box">
+                        <!-- Activity logs -->
+                    </div>
+                </aside>
+            </div>
+
+            <!-- View: Knowledge -->
+            <div id="view-knowledge" class="view">
+                <div class="knowledge-header">
+                    <h1>Neural Network</h1>
+                    <p>Visualizing relational memory nodes and episodic anchors.</p>
                 </div>
+                <div class="knowledge-container glass">
+                    <div id="network-viz"></div>
+                </div>
+            </div>
 
-                <!-- VIEW: SETTINGS -->
-                <div id="view-settings" class="view scroll-y">
-                    <div class="settings-panel">
-                        <section class="settings-section">
-                            <h2>Ollama Backend Status</h2>
-                            <div id="ollama-health-grid" class="health-grid">
-                                <div class="empty-state">Loading backend status...</div>
-                            </div>
-                        </section>
+            <!-- View: Tools -->
+            <div id="view-tools" class="view scrollable">
+                <div class="knowledge-header">
+                    <h1>System Capabilities</h1>
+                    <p>Registered modules and autonomous skills.</p>
+                </div>
+                <div id="tools-grid" class="tools-grid">
+                    <!-- Tools populate here -->
+                </div>
+            </div>
 
-                        <section class="settings-section">
-                            <h2>Hardware Manifest</h2>
-                            <div id="system-info-box" class="info-grid">
-                                <div class="empty-state">Retrieving hardware info...</div>
-                            </div>
-                        </section>
-
-                        <section class="settings-section danger-zone">
-                            <h2>Danger Zone</h2>
-                            <button class="btn-danger" style="margin-bottom: 10px;" onclick="wipeMemory()">PURGE MEMORY CORE</button>
-                            <button class="btn-danger" onclick="fullReset()">TOTAL SYSTEM RESET</button>
-                            <p class="dim" style="font-size: 0.8rem; margin-top: 10px;">Critical: Reset clears all memories, goals, and stacks. Journal and logs are preserved.</p>
-                        </section>
+            <!-- View: System -->
+            <div id="view-system" class="view scrollable">
+                <div class="knowledge-header">
+                    <h1>Core Diagnostics</h1>
+                    <p>Hardware utilization and backend availability.</p>
+                </div>
+                <div class="system-panels">
+                    <div class="diag-card glass">
+                        <h3>Hardware manifest</h3>
+                        <div id="system-info" class="info-list"></div>
+                    </div>
+                    <div class="diag-card glass">
+                        <h3>Ollama Nodes</h3>
+                        <div id="ollama-health" class="info-list"></div>
+                    </div>
+                    <div class="diag-card glass danger">
+                        <h3>System Controls</h3>
+                        <p>Irreversible management actions.</p>
+                        <div class="action-row">
+                            <button class="btn-outline danger" onclick="wipeMemory()">Purge Memory</button>
+                            <button class="btn-outline danger" onclick="fullReset()">Total Reset</button>
+                        </div>
                     </div>
                 </div>
-
             </div>
         </main>
-
-        <!-- 3. RIGHT PANEL (Tabbed Info) -->
-        <aside class="right-panel">
-            <!-- Tabs Header -->
-            <div class="panel-tabs">
-                <button class="tab-btn active" id="tab-btn-mission" onclick="switchRightTab('mission')">MISSION</button>
-                <button class="tab-btn" id="tab-btn-logs" onclick="switchRightTab('logs')">LOGS</button>
-                <button class="tab-btn" id="tab-btn-journal" onclick="switchRightTab('journal')">JOURNAL</button>
-            </div>
-
-            <!-- Tab Content: MISSION -->
-            <div id="tab-mission" class="panel-content active">
-                <div class="section-label">ACTIVE GOAL</div>
-                <div class="goal-box" id="goal-card">
-                    <div class="goal-header" id="goal-title">No active goal</div>
-                    <div class="subtask-list" id="subtask-list">
-                        <div class="empty-state">System Idle</div>
-                    </div>
-                </div>
-
-                <div class="section-label" style="margin-top: 20px;">PROACTIVE THOUGHTS</div>
-                <div class="thoughts-stream" id="proactive-stream">
-                    <!-- Stream of thoughts goes here -->
-                </div>
-            </div>
-
-            <!-- Tab Content: LOGS -->
-            <div id="tab-logs" class="panel-content">
-                <div class="log-console" id="log-console">
-                    <div class="log-line system">[SYS] Stream connected...</div>
-                </div>
-            </div>
-
-            <!-- Tab Content: JOURNAL -->
-            <div id="tab-journal" class="panel-content">
-                <div class="journal-feed" id="journal-entries">
-                    <div class="empty-state">No reflections logged.</div>
-                </div>
-            </div>
-
-        </aside>
     </div>
+
     <script src="/static/script.js"></script>
 </body>
 

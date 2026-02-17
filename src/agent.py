@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from .models import ModelManager
 from .memory import MemorySystem
 from .tools import registry as tool_registry
@@ -35,7 +35,7 @@ class Agent:
         """Returns the execution context for tools."""
         return {"data_dir": self.data_dir}
 
-    def run(self, user_input: str, source: str = "cli") -> str:
+    def run(self, user_input: str, source: str = "cli", callback: Optional[Callable] = None) -> str:
         # 1. Retrieve Memory
         long_term_context = self.memory.retrieve_relevant(user_input)
         short_term_history = self.memory.get_short_term()
@@ -49,7 +49,7 @@ class Agent:
         if intent in ("REASON", "TOOL"):
             cwd = os.getcwd()
             os_info = os.name
-            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context())
+            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context(), callback=callback)
             env_context = f"LOCAL ENVIRONMENT:\n- OS: {os_info}\n- CWD: {cwd}\n- FILES: {local_files}\n"
         else:
             env_context = ""
@@ -69,7 +69,7 @@ class Agent:
                     # Standardize on tool_args; also accept legacy field names
                     tool_args = tool_data.get("tool_args") or tool_data.get("arguments") or tool_data.get("args") or {}
                     if tool_name:
-                        tool_result = self.tools.execute(tool_name, tool_args, context=self._get_context())
+                        tool_result = self.tools.execute(tool_name, tool_args, context=self._get_context(), callback=callback)
 
         # 3. Build structured context for synthesis
         context_parts = []
@@ -259,7 +259,7 @@ class Agent:
             print(f"Reflection Error: {e}")
             return f"Reflection failed: {e}"
 
-    def heartbeat(self) -> str:
+    def heartbeat(self, callback: Optional[Callable] = None) -> str:
         """
         Autonomous execution loop. Multi-step: follows a plan if available.
         """
@@ -267,7 +267,7 @@ class Agent:
         all_results = []
         
         # 1. Check Goal
-        goal_json = self.tools.execute("get_goal", {}, context=self._get_context())
+        goal_json = self.tools.execute("get_goal", {}, context=self._get_context(), callback=callback)
         if "No active goal" in goal_json or "Error" in goal_json:
              # (Boredom logic skipped here for brevity, keeping same structure)
              return None
@@ -276,12 +276,12 @@ class Agent:
         goal_desc = goal_data.get("goal", "")
         
         # 2. Check Plan
-        plan_json = self.tools.execute("get_plan", {}, context=self._get_context())
+        plan_json = self.tools.execute("get_plan", {}, context=self._get_context(), callback=callback)
         if "No plan defined" in plan_json:
             logger.info(f"[Heartbeat] No plan for goal '{goal_desc[:30]}'. Generating...")
             steps = self.models.generate_plan(goal_desc)
-            self.tools.execute("set_plan", {"steps": steps}, context=self._get_context())
-            plan_json = self.tools.execute("get_plan", {}, context=self._get_context())
+            self.tools.execute("set_plan", {"steps": steps}, context=self._get_context(), callback=callback)
+            plan_json = self.tools.execute("get_plan", {}, context=self._get_context(), callback=callback)
         
         plan_data = json.loads(plan_json)
         steps = plan_data.get("steps", [])
@@ -297,7 +297,7 @@ class Agent:
         
         if next_step_idx == -1:
             logger.info("[Heartbeat] Plan finished. Marking goal complete.")
-            return self.tools.execute("complete_goal", {"result_summary": "All plan steps completed."}, context=self._get_context())
+            return self.tools.execute("complete_goal", {"result_summary": "All plan steps completed."}, context=self._get_context(), callback=callback)
 
         # 3. Execute next step
         logger.info(f"[Heartbeat] Executing Step {next_step_idx}: {next_step_desc}")
@@ -306,7 +306,7 @@ class Agent:
             # Inject Environmental Context to prevent "Generic AI" personality
             cwd = os.getcwd()
             os_info = os.name
-            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context())
+            local_files = self.tools.execute("list_files", {"path": "."}, context=self._get_context(), callback=callback)
             
             env_context = f"ENVIRONMENT:\n- OS: {os_info}\n- CWD: {cwd}\n- FILES: {local_files}\n"
             
@@ -324,14 +324,14 @@ class Agent:
                     tool = action.get("tool_name")
                     args = action.get("tool_args", {})
                     if tool:
-                        output = self.tools.execute(tool, args, context=self._get_context())
+                        output = self.tools.execute(tool, args, context=self._get_context(), callback=callback)
                         all_results.append(f"{tool} -> {output[:100]}")
                         # If the tool reported an error, mark the step as failed instead of completed
                         if output.lower().startswith("error") or "exception" in output.lower():
                             step_failed = True
 
                 new_status = "failed" if step_failed else "completed"
-                self.tools.execute("update_plan_step", {"step_index": next_step_idx, "status": new_status}, context=self._get_context())
+                self.tools.execute("update_plan_step", {"step_index": next_step_idx, "status": new_status}, context=self._get_context(), callback=callback)
                 if step_failed:
                     logger.warning(f"[Heartbeat] Step {next_step_idx} marked as failed due to tool error.")
             

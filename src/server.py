@@ -17,6 +17,9 @@ from src.logger import get_logger
 
 logger = get_logger("server")
 
+# Global loop for thread-safe callbacks
+main_loop = None
+
 # Ensure stdout is flushed (important for Docker/Uvicorn logs)
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -25,8 +28,7 @@ if hasattr(sys.stdout, "reconfigure"):
 logger.info("Initializing Agent for Web Server...")
 agent = Agent()
 
-# Async lock to serialize agent.run() calls (it touches shared short_term_memory)
-# Created lazily in lifespan to ensure it's on the right event loop
+# Async lock to serialize agent.run() calls
 agent_lock = None
 
 # Connection Manager
@@ -55,178 +57,134 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+# --- Tool Callback ---
+
+def tool_callback(tool_name: str, args: dict):
+    """Callback for tool execution to notify UI via WebSockets."""
+    try:
+        if main_loop:
+            asyncio.run_coroutine_threadsafe(
+                manager.broadcast({
+                    "type": "tool_start",
+                    "tool": tool_name,
+                    "args": args
+                }),
+                main_loop
+            )
+    except Exception as e:
+        logger.error(f"Tool Callback Error: {e}")
+
+
 # --- Background Tasks ---
 
 async def telegram_poll_loop():
     """Polls Telegram for new messages from the user using long polling."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram Poller: Missing credentials. Skipping.")
+        logger.info("Telegram Poller: Missing credentials. Skipping.")
         return
 
-    print("Telegram Poller Started (Long Polling).")
     offset = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-    retry_delay = 1  # Start with 1s, exponential backoff on errors
-    
-    # Initialize offset to latest message to avoid backlog
+    retry_delay = 1
+
+    # Initialize offset
     try:
         loop = asyncio.get_event_loop()
-        print("Telegram Poller: Initializing offset...", flush=True)
         init_resp = await loop.run_in_executor(
-            None, 
+            None,
             lambda: requests.get(f"{url}?offset=-1&limit=1", timeout=10).json()
         )
         if init_resp.get("ok") and init_resp.get("result"):
             offset = init_resp["result"][0]["update_id"] + 1
-            print(f"Telegram Poller: Offset initialized to {offset}", flush=True)
-        else:
-            print(f"Telegram Poller: No previous messages found or offset init skipped. Offset: {offset}", flush=True)
     except Exception as e:
-        print(f"Telegram Poller: Failed to initialize offset: {e}", flush=True)
-    
-    print(f"Telegram Poller Started (Long Polling). URL: {url.replace(TELEGRAM_BOT_TOKEN, '***')}", flush=True)
-    
+        logger.error(f"Telegram Poller: Failed to initialize offset: {e}")
+
     def _poll_telegram(poll_url, poll_offset):
-        """Helper to avoid lambda closure issues with offset."""
         try:
-            print(f"[Telegram] Polling... (offset={poll_offset})", flush=True)
             r = requests.get(f"{poll_url}?offset={poll_offset}&timeout=20", timeout=25)
-            print(f"[Telegram] Poll returned status {r.status_code}", flush=True)
             return r.json()
-        except Exception as e:
-            print(f"[Telegram] Polling Error in executor: {e}", flush=True)
+        except Exception:
             return None
 
     while True:
         try:
             loop = asyncio.get_event_loop()
-            resp = await loop.run_in_executor(
-                None, 
-                _poll_telegram, url, offset
-            )
-            retry_delay = 1  # Reset on success
-            
+            resp = await loop.run_in_executor(None, _poll_telegram, url, offset)
+            retry_delay = 1
+
             if resp and resp.get("ok"):
                 results = resp.get("result", [])
-                if not results:
-                    # Normal long-poll timeout with no messages
-                    # print("[Telegram] Poll returned 0 results.", flush=True)
-                    pass
-                
                 for update in results:
                     message = update.get("message")
                     if message:
                         msg_text = message.get("text")
                         chat_id = str(message.get("chat", {}).get("id"))
-                        
+
                         if chat_id == TELEGRAM_CHAT_ID and msg_text:
-                            print(f"[Telegram] Received from correct ID: {msg_text}", flush=True)
                             await manager.broadcast({"type": "status", "status": "thinking"})
-                            await manager.broadcast({
-                                "type": "log", 
-                                "content": f"📱 Telegram User: {msg_text}",
-                                "source": "telegram"
-                            })
-                            
+                            await manager.broadcast({"type": "log", "content": f"📱 Telegram: {msg_text}"})
+
                             captured_text = msg_text
                             lock = agent_lock
                             try:
                                 if lock:
-                                    print(f"[Telegram] Waiting for Lock to process: {captured_text[:20]}...", flush=True)
                                     async with lock:
-                                        print(f"[Telegram] Lock acquired. Running agent...", flush=True)
                                         response = await loop.run_in_executor(
-                                            None, lambda t=captured_text: agent.run(t, source="telegram")
+                                            None, lambda: agent.run(captured_text, source="telegram", callback=tool_callback)
                                         )
-                                        print(f"[Telegram] Agent finished.", flush=True)
                                 else:
                                     response = await loop.run_in_executor(
-                                        None, lambda t=captured_text: agent.run(t, source="telegram")
+                                        None, lambda: agent.run(captured_text, source="telegram", callback=tool_callback)
                                     )
-                                
-                                await manager.broadcast({
-                                    "type": "response", 
-                                    "content": response,
-                                    "source": "telegram"
-                                })
-                                await manager.broadcast({"type": "status", "status": "idle"})
-                                
-                                # Send reply back to Telegram
-                                send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                                safe_response = _escape_html(response)
-                                captured_resp = safe_response
-                                try:
-                                    print(f"[Telegram] Sending reply...", flush=True)
-                                    await loop.run_in_executor(None, lambda r=captured_resp: requests.post(
-                                        send_url, json={
-                                            "chat_id": TELEGRAM_CHAT_ID,
-                                            "text": r,
-                                            "parse_mode": "HTML"
-                                        }, timeout=10
-                                    ))
-                                except Exception as send_err:
-                                    print(f"Telegram Send Error: {send_err}")
-                                    try:
-                                        await loop.run_in_executor(None, lambda r=response: requests.post(
-                                            send_url, json={
-                                                "chat_id": TELEGRAM_CHAT_ID,
-                                                "text": r
-                                            }, timeout=10
-                                        ))
-                                    except Exception:
-                                        pass
-                            except Exception as e:
-                                print(f"Error processing Telegram message: {e}", flush=True)
-                                await manager.broadcast({"type": "status", "status": "idle"})
-                        else:
-                            if msg_text:
-                                print(f"[Telegram] Ignoring message from {chat_id}. Expected {TELEGRAM_CHAT_ID}.", flush=True)
-                    
-                    offset = update.get("update_id", 0) + 1
-                continue
-            elif resp:
-                print(f"[Telegram] Poll returned NOT OK: {resp}", flush=True)
-            else:
-                # Polling helper returned None (exception handled inside)
-                pass
 
-        except requests.exceptions.ConnectionError as e:
-            print(f"Telegram Poller: Connection error (retrying in {retry_delay}s): {e}", flush=True)
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, 60)
-            continue
-        except requests.exceptions.Timeout:
-            # Should be handled inside helper, but just in case
-            continue
+                                await manager.broadcast({"type": "response", "content": response})
+                                await manager.broadcast({"type": "status", "status": "idle"})
+
+                                # Send reply
+                                send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                try:
+                                    await loop.run_in_executor(None, lambda: requests.post(send_url, json={
+                                        "chat_id": TELEGRAM_CHAT_ID, "text": _escape_html(response), "parse_mode": "HTML"
+                                    }, timeout=10))
+                                except Exception:
+                                    await loop.run_in_executor(None, lambda: requests.post(send_url, json={
+                                        "chat_id": TELEGRAM_CHAT_ID, "text": response
+                                    }, timeout=10))
+                            except Exception as e:
+                                logger.error(f"Error processing Telegram: {e}")
+                                await manager.broadcast({"type": "status", "status": "idle"})
+                    offset = update.get("update_id", 0) + 1
+            elif resp:
+                logger.warning(f"Telegram Poll NOT OK: {resp}")
+
         except Exception as e:
-            print(f"Telegram Poller Loop Exception: {e}", flush=True)
+            logger.error(f"Telegram Poller Loop Exception: {e}")
             await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 30)
             continue
-        
+
         await asyncio.sleep(0.5)
 
 
 async def agent_heartbeat_loop():
     """Background task to pulse the agent at HEARTBEAT_INTERVAL."""
-    print(f"Heartbeat Loop Started (Interval: {HEARTBEAT_INTERVAL}s).")
+    logger.info(f"Heartbeat Loop Started (Interval: {HEARTBEAT_INTERVAL}s).")
     last_journal_count = 0
     while True:
         try:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
             loop = asyncio.get_running_loop()
-            
+
             lock = agent_lock
             if lock:
                 async with lock:
-                    result = await loop.run_in_executor(None, agent.heartbeat)
+                    result = await loop.run_in_executor(None, lambda: agent.heartbeat(callback=tool_callback))
             else:
-                result = await loop.run_in_executor(None, agent.heartbeat)
-            
+                result = await loop.run_in_executor(None, lambda: agent.heartbeat(callback=tool_callback))
+
             if result:
                 steps = result.split(" | ")
                 for step in steps:
-                    print(f"Goal Update: {step}")
                     await manager.broadcast({"type": "log", "content": f"⚡ Heartbeat: {step}"})
                 await manager.broadcast({"type": "refresh_status"})
 
@@ -240,30 +198,23 @@ async def agent_heartbeat_loop():
                         last_journal_count = current_count
                 except Exception:
                     pass
-                    
             await manager.broadcast({"type": "status", "status": "idle"})
         except Exception as e:
-            print(f"Heartbeat Loop Error: {e}")
+            logger.error(f"Heartbeat Loop Error: {e}")
 
 
-# --- FastAPI Lifespan (replaces deprecated @app.on_event) ---
+# --- FastAPI Lifespan ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create lock on the running event loop
-    print("--- SERVER LIFESPAN STARTING ---", flush=True)
-    global agent_lock
+    global agent_lock, main_loop
+    main_loop = asyncio.get_running_loop()
     agent_lock = asyncio.Lock()
-    print("Lock created. Starting background tasks...", flush=True)
     asyncio.create_task(telegram_poll_loop())
     asyncio.create_task(agent_heartbeat_loop())
-    print("Background tasks created. Startup complete.", flush=True)
     yield
-    print("--- SERVER SHUTTING DOWN ---", flush=True)
 
 app = FastAPI(lifespan=lifespan)
-
-# Mount static files
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -278,44 +229,35 @@ async def get():
 
 @app.get("/api/status")
 async def get_status():
-    """Returns current system status for the dashboard."""
     raw_goal = agent.tools.execute("get_goal", {})
     try:
         goal_data = json.loads(raw_goal)
-        if not goal_data:
-            goal_data = {"status": "inactive", "goal": "Idle"}
-    except (json.JSONDecodeError, TypeError):
-        goal_data = {"status": "inactive", "goal": "Idle"}
+        if not goal_data: goal_data = {"status": "inactive", "goal": "Idle"}
+    except: goal_data = {"status": "inactive", "goal": "Idle"}
 
-    try:
-        memory_count = agent.memory.collection.count()
-    except Exception:
-        memory_count = 0
-    
-    # Check Ollama health
-    try:
-        ollama_health = agent.models.check_health()
-    except Exception:
-        ollama_health = {}
+    try: memory_count = agent.memory.collection.count()
+    except: memory_count = 0
 
-    # Get subagents status
+    try: ollama_health = agent.models.check_health()
+    except: ollama_health = {}
+
     try:
         from src.subagents import subagent_manager
         subagents = subagent_manager.list_all()
-    except Exception:
-        subagents = []
+    except: subagents = []
 
     return JSONResponse({
-        "goal": goal_data,
-        "memory_count": memory_count,
-        "ollama_health": ollama_health,
-        "subagents": subagents,
-        "uptime": "Active"
+        "goal": goal_data, "memory_count": memory_count,
+        "ollama_health": ollama_health, "subagents": subagents, "uptime": "Active"
     })
+
+@app.get("/api/tools")
+async def get_tools():
+    """Returns the registered tool schemas."""
+    return JSONResponse({"tools": agent.tools.schemas})
 
 @app.get("/api/system_info")
 async def get_system_info_api():
-    """Returns basic system hardware info."""
     try:
         info_json = agent.tools.execute("get_system_info", {})
         return JSONResponse(json.loads(info_json))
@@ -324,73 +266,50 @@ async def get_system_info_api():
 
 @app.get("/api/memory/graph")
 async def get_memory_graph():
-    """Returns nodes and edges for the knowledge graph."""
     try:
         data = agent.memory.get_all_memories()
-        memories = data.get("nodes", [])
-        edges = data.get("edges", [])
-        
         nodes = []
-        for mem in memories:
+        for mem in data.get("nodes", []):
             label = mem['content'][:20] + "..." if len(mem['content']) > 20 else mem['content']
             type_icon = "🧠"
             color = "#00f3ff"
             mem_type = mem['metadata'].get("type", "")
-            if mem_type == "episodic":
-                type_icon = "📚"
-                color = "#bc13fe"
-            elif mem_type == "auto_learned":
-                type_icon = "💡"
-                color = "#ffd700"
-            elif mem_type == "atomic_fact":
-                type_icon = "🔬"
-                color = "#00ff88"
+            if mem_type == "episodic": type_icon = "📚"; color = "#bc13fe"
+            elif mem_type == "auto_learned": type_icon = "💡"; color = "#ffd700"
+            elif mem_type == "atomic_fact": type_icon = "🔬"; color = "#00ff88"
             nodes.append({
-                "id": mem['id'],
-                "label": f"{type_icon} {label}",
-                "title": mem['content'],
-                "color": color,
-                "shape": "dot"
+                "id": mem['id'], "label": f"{type_icon} {label}",
+                "title": mem['content'], "color": color, "shape": "dot"
             })
-        return JSONResponse({"nodes": nodes, "edges": edges})
+        return JSONResponse({"nodes": nodes, "edges": data.get("edges", [])})
     except Exception as e:
-        print(f"Graph API Error: {e}")
+        logger.error(f"Graph API Error: {e}")
         return JSONResponse({"nodes": [], "edges": []})
 
 @app.get("/api/journal")
 async def get_journal():
-    """Returns self-improvement journal entries."""
     journal_path = os.path.join("data", "journal.jsonl")
-    if not os.path.exists(journal_path):
-        return JSONResponse({"entries": []})
-    
+    if not os.path.exists(journal_path): return JSONResponse({"entries": []})
     entries = []
     try:
         with open(journal_path, 'r', encoding='utf-8') as f:
             for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-    except Exception as e:
-        return JSONResponse({"entries": [], "error": str(e)})
-    
+                if line.strip():
+                    try: entries.append(json.loads(line))
+                    except: continue
+    except Exception as e: return JSONResponse({"entries": [], "error": str(e)})
     return JSONResponse({"entries": entries})
 
 @app.post("/api/memory/clear")
 async def clear_memory():
-    """Wipes agent memory."""
     result = agent.memory.wipe_memory()
     await manager.broadcast({"type": "refresh_status"})
     return JSONResponse({"status": result})
 
 @app.post("/api/reset")
 async def full_reset():
-    """Full system reset."""
     result = agent.full_reset()
-    await manager.broadcast({"type": "log", "content": "SYSTEM: Full reset executed."})
+    await manager.broadcast({"type": "log", "content": "SYSTEM: Reset complete."})
     await manager.broadcast({"type": "refresh_status"})
     return JSONResponse({"status": result})
 
@@ -401,37 +320,27 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             await manager.broadcast({"type": "status", "status": "thinking"})
-            await manager.broadcast({
-                "type": "log", 
-                "content": f"💻 User: {data}",
-                "source": "websocket"
-            })
+            await manager.broadcast({"type": "log", "content": f"💻 User: {data}"})
             loop = asyncio.get_event_loop()
-            
             lock = agent_lock
             if lock:
                 async with lock:
                     response_text = await loop.run_in_executor(
-                        None, lambda d=data: agent.run(d, source="websocket")
+                        None, lambda: agent.run(data, source="websocket", callback=tool_callback)
                     )
             else:
                 response_text = await loop.run_in_executor(
-                    None, lambda d=data: agent.run(d, source="websocket")
+                    None, lambda: agent.run(data, source="websocket", callback=tool_callback)
                 )
-            
+
             await manager.broadcast({"type": "status", "status": "speaking"})
-            await manager.broadcast({
-                "type": "response", 
-                "content": response_text,
-                "source": "websocket"
-            })
-            await manager.broadcast({"type": "log", "content": f"🤖 Agent: {response_text[:80]}..."})
+            await manager.broadcast({"type": "response", "content": response_text})
             await manager.broadcast({"type": "refresh_status"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
-        print(f"WS Error: {e}")
+        logger.error(f"WS Error: {e}")
         manager.disconnect(websocket)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
