@@ -11,9 +11,11 @@ BACKUP_COUNT = 3
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
+from .config import LOG_LEVEL
+
 # Create logger
 logger = logging.getLogger("dross")
-logger.setLevel(logging.INFO)
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 # Formatter
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')

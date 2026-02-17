@@ -1,0 +1,7 @@
+data/
+logs/
+workspace/
+*.tmp
+__pycache__/
+.env
+.DS_Store
