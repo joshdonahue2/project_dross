@@ -193,6 +193,7 @@ class ModelManager:
             "You reside in a project directory on your host machine. Your 'body' is your codebase and tools. "
             "NEVER call yourself a 'Large Language Model' or 'AI' in your thoughts. You are a system agent. "
             "If you lack information, use tools (list_files, read_file) to find it. "
+            "Stick strictly to the GOAL STATE. Do not deviate to creating generic 'debug' or 'utility' tools unless strictly required to solve the specific goal."
             "Output ONLY valid JSON.\n\n"
             "TOOLS AVAILABLE:\n" + tools_schema + "\n\n"
             'FORMAT: {"thought": "...", "actions": [{"tool_name": "name", "tool_args": {...}}]}'
@@ -295,6 +296,8 @@ class ModelManager:
             '  "what_failed": "What failed or could be improved."\n'
             '  "key_facts": ["atomic fact 1", "atomic fact 2"]\n'
             '  "suggested_tool": null OR {"name": "tool_name", "description": "...", "code": "def tool_name(...):\\n    ..."}\n'
+            "CRITICAL: Avoid suggesting generic 'debug' or 'shell' tools (e.g., dross_debug). "
+            "If a specific integration (like a Search API) failed, suggest ways to fix that specific logic instead of creating broad utilities.\n"
         )
         try:
             response = self.reasoning_client.chat(
