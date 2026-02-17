@@ -17,7 +17,7 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     )
 
 # --- Ollama Configuration ---
-_ollama_hosts_raw = os.getenv("OLLAMA_HOSTS", "http://127.0.0.1:11434")
+_ollama_hosts_raw = os.getenv("OLLAMA_HOSTS", "https://ollama1.donahuenet.xyz,https://ollama2.donahuenet.xyz")
 OLLAMA_HOSTS = [h.strip() for h in _ollama_hosts_raw.split(",") if h.strip()]
 
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "20000"))
