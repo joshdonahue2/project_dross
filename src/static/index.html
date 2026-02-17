@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DROSS Command // v3.2</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+
+<body>
+    <div class="app-shell">
+        <!-- 1. LEFT SIDEBAR (Icon Rail) -->
+        <nav class="sidebar">
+            <div class="logo-box">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                </svg>
+            </div>
+
+            <div class="nav-items">
+                <!-- Tabs implemented as radio buttons for pure CSS switching if desired, but we'll use JS for ease -->
+                <button class="nav-btn active" onclick="switchMainView('dashboard')" title="Command Center">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                </button>
+                <button class="nav-btn" onclick="switchMainView('graph')" title="Neural Graph">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="18" cy="5" r="3" />
+                        <circle cx="6" cy="12" r="3" />
+                        <circle cx="18" cy="19" r="3" />
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                    </svg>
+                </button>
+                <button class="nav-btn bottom" onclick="switchMainView('settings')" title="System Config">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="status-indicator online" id="connection-dot"></div>
+        </nav>
+
+        <!-- 2. MAIN STAGE (Center Panel) -->
+        <main class="main-stage">
+
+            <!-- HEADER INFO BAR -->
+            <header class="info-bar">
+                <div class="breadcrumbs">DROSS <span class="dim">/</span> CMD <span class="tag-version">v3.2</span>
+                </div>
+                <div class="status-pill" id="agent-status-pill">
+                    <div class="dot blinking"></div>
+                    <span id="agent-status-text">ONLINE</span>
+                </div>
+                <div class="memory-stat">
+                    <span id="memory-count">--</span> NODES
+                </div>
+            </header>
+
+            <!-- VIEW CONTAINER -->
+            <div class="view-container">
+
+                <!-- VIEW: DASHBOARD (Chat + Terminal) -->
+                <div id="view-dashboard" class="view active">
+                    <div class="chat-wrapper" id="chat-window">
+                        <div class="sys-msg">System Initialized. Access Level: ADMIN.</div>
+                    </div>
+
+                    <!-- INPUT DECK -->
+                    <div class="input-deck">
+                        <div class="input-box">
+                            <span class="prompt-char">></span>
+                            <input type="text" id="user-input" placeholder="Enter command..." autocomplete="off">
+                            <button id="send-btn">EXEC</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: GRAPH -->
+                <div id="view-graph" class="view">
+                    <div id="network-container"></div>
+                </div>
+
+                <!-- VIEW: SETTINGS -->
+                <div id="view-settings" class="view scroll-y">
+                    <div class="settings-panel">
+                        <h2>System Configuration</h2>
+                        <div class="danger-zone">
+                            <h3>Danger Zone</h3>
+                            <button class="btn-danger" style="margin-bottom: 10px;" onclick="wipeMemory()">WIPE MEMORY
+                                CORE</button>
+                            <button class="btn-danger" onclick="fullReset()">FULL SYSTEM WIPE</button>
+                            <p class="dim" style="font-size: 0.8rem; margin-top: 10px;">Warning: Full wipe clears all
+                                memories, goals, and stacks. Journal and logs are preserved.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+
+        <!-- 3. RIGHT PANEL (Tabbed Info) -->
+        <aside class="right-panel">
+            <!-- Tabs Header -->
+            <div class="panel-tabs">
+                <button class="tab-btn active" onclick="switchRightTab('mission')">MISSION</button>
+                <button class="tab-btn" onclick="switchRightTab('logs')">LOGS</button>
+                <button class="tab-btn" onclick="switchRightTab('journal')">JOURNAL</button>
+            </div>
+
+            <!-- Tab Content: MISSION -->
+            <div id="tab-mission" class="panel-content active">
+                <div class="section-label">ACTIVE GOAL</div>
+                <div class="goal-box" id="goal-card">
+                    <div class="goal-header" id="goal-title">No active goal</div>
+                    <div class="subtask-list" id="subtask-list">
+                        <div class="empty-state">System Idle</div>
+                    </div>
+                </div>
+
+                <div class="section-label" style="margin-top: 20px;">PROACTIVE THOUGHTS</div>
+                <div class="thoughts-stream" id="proactive-stream">
+                    <!-- Stream of thoughts goes here -->
+                </div>
+            </div>
+
+            <!-- Tab Content: LOGS -->
+            <div id="tab-logs" class="panel-content">
+                <div class="log-console" id="log-console">
+                    <div class="log-line system">[SYS] Stream connected...</div>
+                </div>
+            </div>
+
+            <!-- Tab Content: JOURNAL -->
+            <div id="tab-journal" class="panel-content">
+                <div class="journal-feed" id="journal-entries">
+                    <div class="empty-state">No reflections logged.</div>
+                </div>
+            </div>
+
+        </aside>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,586 @@
+/* ============================================================
+   DROSS Command Center v3.2 — Cockpit Layout
+   ============================================================ */
+
+/* --- Design Tokens --- */
+:root {
+    --bg-void: #000000;
+    --bg-panel: #050505;
+    --bg-surface: #0a0a0a;
+
+    --border: #222;
+    --border-active: #444;
+
+    --cyan: #00ffff;
+    --magenta: #ff00ff;
+    --green: #00ff00;
+    --yellow: #ffff00;
+    --red: #ff0000;
+
+    --text-main: #e0e0e0;
+    --text-dim: #666;
+
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'Inter', sans-serif;
+
+    --radius: 4px;
+}
+
+/* --- Reset --- */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--bg-void);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    height: 100vh;
+    overflow: hidden;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: #000;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* --- App Shell (Grid) --- */
+.app-shell {
+    display: grid;
+    grid-template-columns: 60px 1fr 340px;
+    /* Precise columns */
+    height: 100vh;
+    border-top: 2px solid var(--cyan);
+    /* Top accent line */
+}
+
+/* --- 1. Sidebar (Left) --- */
+.sidebar {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    gap: 20px;
+}
+
+.logo-box {
+    color: var(--cyan);
+    margin-bottom: 20px;
+}
+
+.nav-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    align-items: center;
+    flex: 1;
+}
+
+.nav-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: 0.2s;
+}
+
+.nav-btn:hover {
+    color: var(--text-main);
+    background: #111;
+}
+
+.nav-btn.active {
+    color: var(--bg-void);
+    background: var(--text-main);
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+.nav-btn.bottom {
+    margin-top: auto;
+}
+
+.status-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #333;
+}
+
+.status-indicator.online {
+    background: var(--green);
+    box-shadow: 0 0 5px var(--green);
+}
+
+
+/* --- 2. Main Stage (Center) --- */
+.main-stage {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-void);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Info Bar */
+.info-bar {
+    height: 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.tag-version {
+    color: var(--cyan);
+    margin-left: 8px;
+}
+
+.dim {
+    color: #333;
+    margin: 0 4px;
+}
+
+.status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid #333;
+    border-radius: 10px;
+    color: var(--green);
+}
+
+.dot {
+    width: 4px;
+    height: 4px;
+    background: var(--green);
+    border-radius: 50%;
+}
+
+.blinking {
+    animation: blink 1s infinite alternate;
+}
+
+@keyframes blink {
+    from {
+        opacity: 1
+    }
+
+    to {
+        opacity: 0.3
+    }
+}
+
+/* View Container */
+.view-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.view {
+    display: none;
+    height: 100%;
+    flex-direction: column;
+}
+
+.view.active {
+    display: flex;
+}
+
+.view.scroll-y {
+    overflow-y: auto;
+}
+
+
+/* Dashboard View */
+.chat-wrapper {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sys-msg {
+    font-family: var(--font-mono);
+    color: #444;
+    text-align: center;
+    font-size: 10px;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+}
+
+.message {
+    max-width: 80%;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    border-radius: 2px;
+}
+
+.message.user {
+    align-self: flex-end;
+    background: #111;
+    border: 1px solid #333;
+    border-left: 2px solid var(--cyan);
+    color: var(--text-main);
+}
+
+.message.assistant {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid #222;
+    color: #ccc;
+    font-family: var(--font-mono);
+    /* Terminal style */
+}
+
+/* Input Deck */
+.input-deck {
+    padding: 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-void);
+}
+
+.input-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #080808;
+    border: 1px solid #333;
+    padding: 8px 12px;
+    border-radius: 2px;
+}
+
+.input-box:focus-within {
+    border-color: var(--cyan);
+}
+
+.prompt-char {
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-weight: bold;
+}
+
+.input-box input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 14px;
+}
+
+#send-btn {
+    background: #111;
+    color: var(--cyan);
+    border: 1px solid #333;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+}
+
+#send-btn:hover {
+    background: var(--cyan);
+    color: #000;
+}
+
+
+/* --- 3. Right Panel (Tabbed) --- */
+.right-panel {
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    background: #0c0c0c;
+}
+
+.tab-btn.active {
+    color: var(--cyan);
+    border-bottom-color: var(--cyan);
+    background: #0a0a0a;
+}
+
+.panel-content {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.panel-content.active {
+    display: flex;
+}
+
+.section-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #444;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+}
+
+/* Goal Box */
+.goal-box {
+    background: #0a0a0a;
+    border: 1px solid #222;
+    padding: 12px;
+    border-radius: 2px;
+}
+
+.goal-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #222;
+}
+
+.subtask-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.subtask-item {
+    font-size: 11px;
+    color: #888;
+    padding-left: 8px;
+    border-left: 2px solid #333;
+}
+
+.subtask-item.completed {
+    color: #444;
+    text-decoration: line-through;
+    border-color: var(--green);
+}
+
+/* Thoughts Stream */
+.thoughts-stream {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.thought-entry {
+    font-size: 11px;
+    color: #aaa;
+    background: #0e0e0e;
+    padding: 6px;
+    border-left: 1px solid #444;
+    font-style: italic;
+    animation: fadeIn 0.3s;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Logs Console */
+.log-console {
+    background: #000;
+    border: 1px solid #222;
+    padding: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #666;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.log-line {
+    margin-bottom: 2px;
+    border-bottom: 1px dashed #111;
+    padding-bottom: 2px;
+    word-break: break-all;
+}
+
+.log-line:hover {
+    color: #fff;
+    background: #111;
+}
+
+/* Journal */
+.journal-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.entry-card {
+    background: #0a0a0a;
+    border: 1px solid #222;
+    padding: 10px;
+}
+
+.entry-time {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #555;
+    margin-bottom: 4px;
+}
+
+.entry-body {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #ccc;
+}
+
+.outcome-tag {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 4px;
+    background: #111;
+    border: 1px solid #333;
+    margin-top: 4px;
+}
+
+/* Empty States */
+.empty-state {
+    color: #333;
+    font-style: italic;
+    text-align: center;
+    margin-top: 20px;
+}
+
+/* Graph */
+#network-container {
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+/* --- Settings Panel --- */
+.settings-panel {
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.settings-panel h2 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    margin-bottom: 4px;
+}
+
+.danger-zone {
+    background: #080808;
+    border: 1px solid #330000;
+    padding: 16px;
+    border-radius: var(--radius);
+}
+
+.danger-zone h3 {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--red);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+}
+
+.btn-danger {
+    width: 100%;
+    padding: 9px 12px;
+    background: transparent;
+    border: 1px solid #660000;
+    color: var(--red);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background 0.15s, border-color 0.15s;
+    text-transform: uppercase;
+}
+
+.btn-danger:hover {
+    background: #1a0000;
+    border-color: var(--red);
+    box-shadow: 0 0 8px rgba(255, 0, 0, 0.2);
+}
+
+/* --- Log line variants --- */
+.log-line.system {
+    color: #555;
+    font-style: italic;
+}
