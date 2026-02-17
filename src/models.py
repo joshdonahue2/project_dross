@@ -1,23 +1,34 @@
 from ollama import Client
+import httpx
 from typing import List, Dict, Any, Optional
+from .utils import extract_json, strip_json_fences
+from .logger import get_logger
+
+logger = get_logger("models")
 
 try:
-    from src.config import OLLAMA_HOSTS, OLLAMA_NUM_CTX, OLLAMA_KEEP_ALIVE
+    from src.config import (
+        OLLAMA_HOSTS, OLLAMA_NUM_CTX, OLLAMA_KEEP_ALIVE,
+        REASONING_MODEL, GENERAL_MODEL, TOOL_MODEL
+    )
 except ImportError:
     OLLAMA_HOSTS = ["http://127.0.0.1:11434"]
     OLLAMA_NUM_CTX = 20000
     OLLAMA_KEEP_ALIVE = -1
+    REASONING_MODEL = "phi4-mini-reasoning:latest"
+    GENERAL_MODEL = "qwen3:4b"
+    TOOL_MODEL = "granite4:latest"
 
 class ModelManager:
     """
     Manages interactions with different Ollama models distributed across multiple hosts.
     """
-    def __init__(self, reasoning_model="phi4-mini-reasoning:latest", 
-                 general_model="qwen3:4b", 
-                 tool_model="granite4:latest"):
-        self.reasoning_model = reasoning_model
-        self.general_model = general_model
-        self.tool_model = tool_model
+    def __init__(self, reasoning_model=None,
+                 general_model=None,
+                 tool_model=None):
+        self.reasoning_model = reasoning_model or REASONING_MODEL
+        self.general_model = general_model or GENERAL_MODEL
+        self.tool_model = tool_model or TOOL_MODEL
 
         # Client Pool: Reasoning, Tool Selection, General/Autonomy
         self.clients = [Client(host=h) for h in OLLAMA_HOSTS]
@@ -42,15 +53,22 @@ class ModelManager:
         
         self.options = {"num_ctx": OLLAMA_NUM_CTX}
 
+    def check_health(self) -> Dict[str, bool]:
+        """Checks the health of all configured Ollama hosts."""
+        health = {}
+        for host in OLLAMA_HOSTS:
+            try:
+                client = Client(host=host)
+                client.list()
+                health[host] = True
+            except Exception as e:
+                logger.error(f"Host health check failed for {host}: {e}")
+                health[host] = False
+        return health
+
     def _strip_json_fences(self, text: str) -> str:
         """Remove ```json ... ``` or ``` ... ``` wrappers the model sometimes adds."""
-        import re
-        text = text.strip()
-        # Handle ```json ... ``` or ``` ... ```
-        match = re.match(r'^```(?:json)?\s*(.*?)\s*```$', text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return text
+        return strip_json_fences(text)
 
     def query_reasoning(self, prompt: str, context: str = "") -> str:
         """
@@ -73,8 +91,11 @@ class ModelManager:
                 keep_alive=OLLAMA_KEEP_ALIVE
             )
             return response['message']['content']
+        except httpx.ConnectError:
+            logger.error("Reasoning query failed: Could not connect to Ollama.")
+            return "Unable to perform deep reasoning."
         except Exception as e:
-            print(f"[Models] Reasoning query failed: {e}")
+            logger.error(f"Reasoning query failed: {e}")
             return "Unable to perform deep reasoning."
 
     def _get_identity_anchor(self) -> str:
@@ -111,8 +132,11 @@ class ModelManager:
                 keep_alive=OLLAMA_KEEP_ALIVE
             )
             return response['message']['content']
+        except httpx.ConnectError:
+            logger.error("General query failed: Could not connect to Ollama.")
+            return "Error: Could not connect to Ollama."
         except Exception as e:
-            print(f"[Models] General query failed: {e}")
+            logger.error(f"General query failed: {e}")
             return f"Error: {e}"
 
     def route_request(self, prompt: str) -> str:
@@ -136,7 +160,7 @@ class ModelManager:
             if "REASON" in category: return "REASON"
             return "DIRECT"
         except Exception as e:
-            print(f"[Models] Route request failed: {e}")
+            logger.error(f"Route request failed: {e}")
             return "DIRECT"  # Default to direct chat on error
 
     def query_tool(self, prompt: str, tools_schema: str) -> str:
@@ -159,7 +183,7 @@ class ModelManager:
             )
             return response['message']['content']
         except Exception as e:
-            print(f"[Models] Tool query failed: {e}")
+            logger.error(f"Tool query failed: {e}")
             return "null"
 
     def query_autonomy(self, goal_state: str, tools_schema: str, action_history: str = "") -> str:
@@ -189,7 +213,7 @@ class ModelManager:
             )
             return response['message']['content']
         except Exception as e:
-            print(f"[Models] Autonomy query failed: {e}")
+            logger.error(f"Autonomy query failed: {e}")
             return '{"thought": "idle", "actions": []}'
 
     def extract_insight(self, interaction: str) -> Dict[str, Any]:
@@ -223,31 +247,23 @@ class ModelManager:
                  import re
                  content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             
-            # Strip markdown code fences first
-            content = self._strip_json_fences(content)
-
-            # Extract JSON from any remaining code blocks
-            import json
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-            
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                snippet = content[start:end+1]
-                try:
-                    return json.loads(snippet)
-                except json.JSONDecodeError:
-                    # Fallback: model sometimes uses Python-style single-quoted dicts
-                    import ast
-                    try:
-                        return ast.literal_eval(snippet)
-                    except Exception:
-                        pass
+            data = extract_json(content)
+            if data and "facts" in data:
+                # Post-processing to ensure facts are strings
+                processed_facts = []
+                for f in data["facts"]:
+                    if isinstance(f, dict):
+                        processed_facts.append(", ".join(f"{k}: {v}" for k, v in f.items()))
+                    elif isinstance(f, str):
+                        processed_facts.append(f)
+                    else:
+                        processed_facts.append(str(f))
+                data["facts"] = processed_facts
+            return data or {"facts": [], "relationships": []}
+        except httpx.ConnectError:
+            logger.error("Extract insight failed: Could not connect to Ollama.")
         except Exception as e:
-            print(f"[Models] Extract insight failed: {e}")
+            logger.error(f"Extract insight failed: {e}")
         return {"facts": [], "relationships": []}
 
     def summarize_memory(self, conversation_text: str) -> str:
@@ -297,7 +313,7 @@ class ModelManager:
             content = self._strip_json_fences(content)
             return content
         except Exception as e:
-            print(f"[Models] Reflection query failed: {e}")
+            logger.error(f"Reflection query failed: {e}")
             return '{"outcome": "unknown", "lessons": "Reflection failed.", "what_worked": "", "what_failed": "", "key_facts": [], "suggested_tool": null}'
 
     def generate_plan(self, goal_description: str) -> List[str]:
@@ -330,5 +346,5 @@ class ModelManager:
             if start != -1 and end != -1:
                 return json.loads(content[start:end+1])
         except Exception as e:
-            print(f"[Models] Plan generation failed: {e}")
+            logger.error(f"Plan generation failed: {e}")
         return [f"Execute: {goal_description}"]

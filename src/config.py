@@ -35,3 +35,11 @@ TELEGRAM_RETRY_DELAY = int(os.getenv("TELEGRAM_RETRY_DELAY", "1"))
 # Minimum combined character length of user+response to trigger insight extraction.
 # Prevents expensive LLM calls on trivial one-liner exchanges.
 AUTO_LEARN_MIN_LENGTH = int(os.getenv("AUTO_LEARN_MIN_LENGTH", "200"))
+
+# --- Models ---
+REASONING_MODEL = os.getenv("REASONING_MODEL", "phi4-mini-reasoning:latest")
+GENERAL_MODEL = os.getenv("GENERAL_MODEL", "qwen3:4b")
+TOOL_MODEL = os.getenv("TOOL_MODEL", "granite4:latest")
+
+# --- Logging ---
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

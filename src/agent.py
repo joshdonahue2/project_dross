@@ -6,6 +6,7 @@ from .models import ModelManager
 from .memory import MemorySystem
 from .tools import registry as tool_registry
 from .logger import get_logger
+from .utils import clean_output, extract_json
 
 logger = get_logger("agent")
 
@@ -24,15 +25,7 @@ class Agent:
 
     def _clean_output(self, text: str) -> str:
         """Removes <think> tags, \\boxed{} wrappers, and other artifacts."""
-        # Remove <think>...</think> blocks
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-        text = text.replace('<think>', '').replace('</think>', '')
-        
-        # Remove \boxed{...} wrappers (common in reasoning models)
-        # Simple regex for non-nested braces - use DOTALL for multiline content
-        text = re.sub(r'\\boxed\{(.*?)\}', r'\1', text, flags=re.DOTALL)
-        
-        return text.strip()
+        return clean_output(text)
 
     def run(self, user_input: str, source: str = "cli") -> str:
         # 1. Retrieve Memory
@@ -165,41 +158,7 @@ class Agent:
 
     def _extract_json(self, text: str) -> dict:
         """Robustly extract a JSON object from model output."""
-        cleaned = self._clean_output(text)
-        
-        # Try direct parse first
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-        
-        # Try extracting from markdown code blocks
-        if "```json" in cleaned:
-            cleaned = cleaned.split("```json")[1].split("```")[0]
-        elif "```" in cleaned:
-            cleaned = cleaned.split("```")[1].split("```")[0]
-        
-        try:
-            return json.loads(cleaned.strip())
-        except json.JSONDecodeError:
-            pass
-        
-        # Last resort: find first { to last }
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1:
-            snippet = cleaned[start:end+1]
-            try:
-                return json.loads(snippet)
-            except json.JSONDecodeError:
-                # Model sometimes outputs Python-style single-quoted dicts
-                import ast
-                try:
-                    return ast.literal_eval(snippet)
-                except Exception:
-                    pass
-        
-        return None
+        return extract_json(text)
 
     def _save_atomic_memories(self, facts: List):
         """Saves a list of facts as individual, high-signal memories."""

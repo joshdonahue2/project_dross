@@ -3,6 +3,9 @@ import uuid
 import json
 from typing import List, Dict, Any
 from datetime import datetime
+from .logger import get_logger
+
+logger = get_logger("memory")
 
 class MemorySystem:
     """
@@ -86,7 +89,7 @@ class MemorySystem:
                 ids=[str(uuid.uuid4())]
             )
         except Exception as e:
-            print(f"Error saving relationship: {e}")
+            logger.error(f"Error saving relationship: {e}")
 
     def retrieve_relevant(self, query: str, n_results: int = 3) -> str:
         """Retrieves the most relevant memories from the vector DB for a given query."""
@@ -118,7 +121,7 @@ class MemorySystem:
 
             return "\n".join(parts) if parts else ""
         except Exception as e:
-            print(f"[Memory] retrieve_relevant failed: {e}")
+            logger.error(f"retrieve_relevant failed: {e}")
             return ""
 
     def clear_short_term(self):
@@ -151,7 +154,7 @@ class MemorySystem:
             
             return {"nodes": nodes, "edges": edges}
         except Exception as e:
-            print(f"Error getting memories: {e}")
+            logger.error(f"Error getting memories: {e}")
             return {"nodes": [], "edges": []}
 
     def wipe_memory(self):
@@ -179,5 +182,5 @@ class MemorySystem:
             self.collection.delete(ids=ids_to_delete)
             return count
         except Exception as e:
-            print(f"Error deleting memories: {e}")
+            logger.error(f"Error deleting memories: {e}")
             return 0

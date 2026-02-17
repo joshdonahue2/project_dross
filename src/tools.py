@@ -4,8 +4,13 @@ import os
 import shutil
 import uuid
 import requests
+import platform
+import subprocess
 from typing import Callable, Dict, Any, List
 from datetime import datetime
+from .logger import get_logger
+
+logger = get_logger("tools")
 
 try:
     from src.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -124,7 +129,6 @@ def run_shell(command: str) -> str:
     Use with caution. Returns stdout and stderr.
     """
     try:
-        import subprocess
         result = subprocess.run(
             command,
             shell=True,
@@ -132,14 +136,43 @@ def run_shell(command: str) -> str:
             text=True,
             timeout=60
         )
-        output = f"Command: {command}\nReturn Code: {result.returncode}\n"
-        if result.stdout:
-            output += f"STDOUT:\n{result.stdout}\n"
-        if result.stderr:
-            output += f"STDERR:\n{result.stderr}\n"
+        output = f"Command: {command}\nExit Code: {result.returncode}\n"
+        output += f"STDOUT:\n{result.stdout if result.stdout else '(empty)'}\n"
+        output += f"STDERR:\n{result.stderr if result.stderr else '(empty)'}\n"
         return output
+    except subprocess.TimeoutExpired:
+        return f"Error: Command '{command}' timed out after 60 seconds."
     except Exception as e:
+        logger.error(f"Shell execution error: {e}")
         return f"Shell Error: {e}"
+
+@registry.register
+def get_system_info() -> str:
+    """Returns basic system information (OS, CPU, Memory)."""
+    try:
+        info = {
+            "os": platform.system(),
+            "os_release": platform.release(),
+            "os_version": platform.version(),
+            "architecture": platform.machine(),
+            "processor": platform.processor(),
+            "python_version": platform.python_version(),
+        }
+
+        # Try to get memory info if psutil is available
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            info["memory_total"] = f"{mem.total / (1024**3):.2f} GB"
+            info["memory_available"] = f"{mem.available / (1024**3):.2f} GB"
+            info["cpu_count"] = psutil.cpu_count()
+        except ImportError:
+            pass
+
+        return json.dumps(info, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting system info: {e}")
+        return f"Error: {e}"
 
 @registry.register
 def install_package(package_name: str) -> str:
@@ -279,7 +312,7 @@ def set_goal(description: str, is_autonomous: bool = False) -> str:
         # Stacking Logic: If current is active/autonomous and new is NOT autonomous
         if current_goal and current_goal.get("status") == "active" and not is_autonomous:
             if current_goal.get("is_autonomous"):
-                print(f"[Goal Manager] Postponing autonomous goal: {current_goal.get('goal')}")
+                logger.info(f"Postponing autonomous goal: {current_goal.get('goal')}")
                 stack = []
                 if os.path.exists(GOAL_STACK_FILE):
                     with open(GOAL_STACK_FILE, 'r', encoding='utf-8') as f:
@@ -346,7 +379,7 @@ def complete_goal(result_summary: str = "Goal reached.") -> str:
                 
                 if stack:
                     resumed_goal = stack.pop()
-                    print(f"[Goal Manager] Resuming postponed goal: {resumed_goal.get('goal')}")
+                    logger.info(f"Resuming postponed goal: {resumed_goal.get('goal')}")
                     # Update status and timestamps
                     resumed_goal["status"] = "active"
                     resumed_goal["resumed_at"] = datetime.now().isoformat()
@@ -360,7 +393,7 @@ def complete_goal(result_summary: str = "Goal reached.") -> str:
                     
                     resumption_msg = f" Resumed goal: {resumed_goal['goal']}"
             except Exception as re:
-                print(f"Error resuming goal: {re}")
+                logger.error(f"Error resuming goal: {re}")
 
         return f"Goal marked as completed.{resumption_msg}"
     except Exception as e:
@@ -603,12 +636,12 @@ def load_custom_tools():
                 
                 registry.register(func)
                 loaded += 1
-                print(f"Loaded custom tool: {tool_name}")
+                logger.info(f"Loaded custom tool: {tool_name}")
         except Exception as e:
-            print(f"Failed to load custom tool '{tool_name}': {e}")
+            logger.error(f"Failed to load custom tool '{tool_name}': {e}")
     
     if loaded:
-        print(f"Loaded {loaded} custom tool(s).")
+        logger.info(f"Loaded {loaded} custom tool(s).")
 
 # Auto-load custom tools on import
 load_custom_tools()
