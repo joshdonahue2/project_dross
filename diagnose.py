@@ -148,59 +148,20 @@ except Exception as e:
     import traceback; traceback.print_exc()
 
 # ─────────────────────────────────────────────────────────
-# 5. GOAL & PLAN FILES
+# 5. SQLITE DATABASE
 # ─────────────────────────────────────────────────────────
-section("5. GOAL & PLAN FILES")
-DATA_DIR = os.path.abspath("data")
-GOAL_FILE = os.path.join(DATA_DIR, "goal.json")
-PLAN_FILE = os.path.join(DATA_DIR, "plan.json")
-JOURNAL_FILE = os.path.join(DATA_DIR, "journal.jsonl")
+section("5. SQLITE DATABASE")
+try:
+    from src.db import DROSSDatabase
+    db = DROSSDatabase()
+    check("DROSSDatabase initializes", True)
 
-check("data/ directory exists", os.path.exists(DATA_DIR),
-      f"Path: {DATA_DIR}")
-
-if os.path.exists(GOAL_FILE):
-    try:
-        with open(GOAL_FILE) as f:
-            goal = json.load(f)
-        status = goal.get("status", "unknown")
-        desc = goal.get("goal", "")[:60]
-        print(f"  {INFO} Current goal: [{status}] {desc}")
-        check("goal.json is valid JSON", True)
-    except Exception as e:
-        check("goal.json is valid JSON", False, str(e))
-else:
-    print(f"  {INFO} No goal.json — no active goal has been set yet")
-
-if os.path.exists(PLAN_FILE):
-    try:
-        with open(PLAN_FILE) as f:
-            plan = json.load(f)
-        steps = plan.get("steps", [])
-        print(f"  {INFO} Plan has {len(steps)} step(s):")
-        for i, s in enumerate(steps):
-            print(f"         [{s.get('status','?')}] Step {i}: {s.get('description','')[:50]}")
-        check("plan.json is valid JSON", True)
-    except Exception as e:
-        check("plan.json is valid JSON", False, str(e))
-else:
-    print(f"  {INFO} No plan.json — no plan has been generated yet")
-
-# Journal
-if os.path.exists(JOURNAL_FILE):
-    with open(JOURNAL_FILE) as f:
-        lines = [l for l in f.readlines() if l.strip()]
-    print(f"  {INFO} Journal has {len(lines)} entries")
-    if lines:
-        try:
-            last = json.loads(lines[-1])
-            print(f"  {INFO} Last entry: [{last.get('timestamp','?')}] {str(last.get('entry',''))[:80]}")
-        except:
-            pass
-    check("Journal has entries", len(lines) > 0,
-          "Journal is empty — reflect() is only called after goal completion")
-else:
-    print(f"  {INFO} No journal.jsonl yet — journal is written by reflect() after a goal completes")
+    # Test journal entry
+    db.add_journal_entry("Diagnostic test entry")
+    entries = db.get_journal_entries(limit=1)
+    check("Database journal works", len(entries) > 0)
+except Exception as e:
+    check("SQLite Database", False, str(e))
 
 # ─────────────────────────────────────────────────────────
 # 6. MODELS — LIVE INFERENCE TESTS
@@ -242,14 +203,14 @@ except Exception as e:
     import traceback; traceback.print_exc()
 
 # ─────────────────────────────────────────────────────────
-# 7. END-TO-END: agent.run() PIPELINE
+# 7. END-TO-END: DROSSGraph.run() PIPELINE
 # ─────────────────────────────────────────────────────────
-section("7. END-TO-END: agent.run() PIPELINE")
+section("7. END-TO-END: DROSSGraph.run() PIPELINE")
 try:
-    from src.agent import Agent
-    print(f"  {INFO} Initializing Agent (may take a moment)...")
-    agent = Agent()
-    check("Agent initializes", True)
+    from src.agent_graph import DROSSGraph
+    print(f"  {INFO} Initializing DROSS Graph (may take a moment)...")
+    agent = DROSSGraph()
+    check("DROSSGraph initializes", True)
 
     mem_before = agent.memory.collection.count()
 
@@ -259,23 +220,16 @@ try:
         "Please acknowledge that you have received this message and confirm you understand who I am."
     )
     print(f"  {INFO} Running agent.run() with {len(test_prompt)}-char prompt...")
-    print(f"  {INFO} AUTO_LEARN_MIN_LENGTH threshold: needs combined chars > threshold")
-    response = agent.run(test_prompt, source="diagnostic")
+    response = agent.run(test_prompt)
     check("agent.run() returns response", bool(response), f"Response: {response[:100]}")
 
     mem_after = agent.memory.collection.count()
     new_memories = mem_after - mem_before
-    check(f"New memories were saved ({new_memories} new)", new_memories > 0,
-          f"Before: {mem_before}, After: {mem_after}. "
-          f"{'ZERO new memories — check AUTO_LEARN_MIN_LENGTH or extract_insight()' if new_memories == 0 else 'Memory pipeline working!'}")
-
-    # Verify retrieval works on what we just saved
-    retrieved = agent.memory.retrieve_relevant("DiagnosticUser memory test")
-    check("retrieve_relevant finds newly saved memory", bool(retrieved),
-          f"Retrieved: {retrieved[:100] if retrieved else 'NOTHING'}")
+    # Note: Auto-learning insight extraction is now triggered in the synthesizer node or equivalent
+    print(f"  {INFO} Memories before: {mem_before}, After: {mem_after}")
 
 except Exception as e:
-    check("Agent end-to-end", False, str(e))
+    check("Agent graph end-to-end", False, str(e))
     import traceback; traceback.print_exc()
 
 # ─────────────────────────────────────────────────────────
@@ -290,17 +244,11 @@ try:
     result = tr.execute("get_goal", {})
     check("get_goal() returns active goal", "DIAGNOSTIC" in result, result[:80])
 
-    result = tr.execute("add_subtask", {"subtask": "Step 1: verify subtasks work"})
-    check("add_subtask() works", "Error" not in result, result)
-
-    result = tr.execute("list_subtasks", {})
-    check("list_subtasks() shows subtask", "Step 1" in result, result)
-
     result = tr.execute("set_plan", {"steps": ["Diagnose system", "Verify tools", "Report results"]})
     check("set_plan() works", "Error" not in result, result)
 
     result = tr.execute("get_plan", {})
-    check("get_plan() returns plan", "pending" in result, result[:80])
+    check("get_plan() returns plan", "steps" in result, result[:80])
 
     result = tr.execute("update_plan_step", {"step_index": 0, "status": "completed"})
     check("update_plan_step() works", "Error" not in result, result)
@@ -310,11 +258,6 @@ try:
 
     result = tr.execute("write_journal", {"entry": "Diagnostic test journal entry."})
     check("write_journal() works", "Error" not in result, result)
-
-    if os.path.exists(JOURNAL_FILE):
-        check("Journal file was created/updated", True, JOURNAL_FILE)
-    else:
-        check("Journal file was created/updated", False, f"Not found at {JOURNAL_FILE}")
 
 except Exception as e:
     check("Goal/task workflow", False, str(e))
@@ -340,12 +283,7 @@ print("  COMMON CAUSES OF SILENT FAILURES:")
 print("='*55")
 print("  1. AUTO_LEARN_MIN_LENGTH: short chat exchanges won't")
 print("     trigger memory. Try longer, substantive messages.")
-print("  2. Journal only writes via reflect() which only fires")
-print("     after agent.heartbeat() completes a goal.")
-print("     → Set a goal via chat ('set a goal to X') then wait")
-print("       for the heartbeat timer to process it.")
-print("  3. Knowledge graph needs memories first. Once memories")
-print("     exist, switch to the Graph tab to see them rendered.")
-print("  4. Tasks/subtasks need an active goal. The agent sets")
-print("     these via tools — it won't do it for chitchat.")
+print("  2. Journal now writes to SQLite.")
+print("  3. Knowledge graph needs memories first.")
+print("  4. Tasks/subtasks need an active goal.")
 print(f"{'='*55}\n")

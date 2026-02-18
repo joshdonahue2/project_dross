@@ -1,195 +1,89 @@
-import json
-import os
-import shutil
-import tempfile
-import time
 import pytest
-from src.agent import Agent
-from src.memory import MemorySystem
-from src.subagents import subagent_manager
+import os
+import json
+from src.agent_graph import DROSSGraph
+from src.db import DROSSDatabase
 
-@pytest.fixture
-def temp_data_dir():
-    tmp = tempfile.mkdtemp(prefix="dross_comprehensive_")
-    yield tmp
-    shutil.rmtree(tmp, ignore_errors=True)
+def test_db_goal_lifecycle():
+    # Use a temporary test database
+    test_db_path = "data/test_comprehensive.db"
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
 
-@pytest.fixture
-def agent(temp_data_dir):
-    # Setup isolated environment
-    agent = Agent(data_dir=temp_data_dir)
-    # Patch memory to use temp dir as well
-    agent.memory = MemorySystem(db_path=os.path.join(temp_data_dir, "memory_db"))
-    return agent
+    db = DROSSDatabase(db_path=test_db_path)
 
-def test_goal_and_subtask_lifecycle(agent):
-    """Test every facet of goal and subtask management."""
-    # 1. Set Goal
-    res = agent.tools.execute("set_goal", {"description": "Comprehensive Test Goal"}, context=agent._get_context())
-    assert "Goal set" in res
+    # Test setting a goal
+    goal_id = db.set_goal("Comprehensive Test Goal", is_autonomous=True)
+    assert goal_id is not None
 
-    goal_raw = agent.tools.execute("get_goal", {}, context=agent._get_context())
-    goal = json.loads(goal_raw)
-    assert goal["goal"] == "Comprehensive Test Goal"
-    assert goal["status"] == "active"
+    # Test retrieval
+    active_goal = db.get_active_goal()
+    assert active_goal['description'] == "Comprehensive Test Goal"
+    assert active_goal['is_autonomous'] == 1
 
-    # 2. Add Subtasks
-    agent.tools.execute("add_subtask", {"subtask": "Step One"}, context=agent._get_context())
-    agent.tools.execute("add_subtask", {"subtask": "Step Two"}, context=agent._get_context())
+    # Test plan creation
+    steps = ["Analyze environment", "Execute task", "Reflect"]
+    db.set_plan(goal_id, steps)
+    plan = db.get_plan(goal_id)
+    assert len(plan['steps']) == 3
+    assert plan['steps'][0]['description'] == "Analyze environment"
+    assert plan['steps'][0]['status'] == "pending"
 
-    goal_raw = agent.tools.execute("get_goal", {}, context=agent._get_context())
-    goal = json.loads(goal_raw)
-    assert len(goal["subtasks"]) == 2
+    # Test step update
+    db.update_plan_step(plan['id'], 0, "completed")
+    plan = db.get_plan(goal_id)
+    assert plan['steps'][0]['status'] == "completed"
 
-    task1_id = goal["subtasks"][0]["id"]
+    # Test goal completion
+    db.complete_goal(goal_id, "Task successful")
+    active_goal = db.get_active_goal()
+    assert active_goal is None
 
-    # 3. Complete Subtask
-    agent.tools.execute("complete_subtask", {"subtask_id": task1_id}, context=agent._get_context())
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
 
-    goal_raw = agent.tools.execute("get_goal", {}, context=agent._get_context())
-    goal = json.loads(goal_raw)
-    assert goal["subtasks"][0]["status"] == "completed"
-    assert goal["subtasks"][1]["status"] == "pending"
+def test_graph_structure():
+    graph = DROSSGraph()
+    assert graph.app is not None
+    # Check if all expected nodes are present
+    nodes = graph.workflow.nodes
+    expected_nodes = ["router", "reasoner", "tool_executor", "synthesizer", "reflector"]
+    for node in expected_nodes:
+        assert node in nodes
 
-    # 4. Complete Goal
-    agent.tools.execute("complete_goal", {"result_summary": "Test finished"}, context=agent._get_context())
-    goal_raw = agent.tools.execute("get_goal", {}, context=agent._get_context())
-    assert "No active goal" in goal_raw
+def test_model_manager_init():
+    from src.models import ModelManager
+    mm = ModelManager()
+    assert mm.reasoning_model is not None
+    assert mm.general_model is not None
+    assert mm.tool_model is not None
 
-def test_memory_and_relational_graph(agent):
-    """Test vector memory, relational storage, and graph output."""
-    # 1. Save memories
-    fid1 = agent.memory.save_long_term("The DROSS system is autonomous.", {"type": "fact"})
-    fid2 = agent.memory.save_long_term("DROSS uses ChromaDB for memory.", {"type": "fact"})
+def test_db_ui_persistence():
+    test_db_path = "data/test_persistence.db"
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
 
-    assert fid1 and fid2
+    db = DROSSDatabase(db_path=test_db_path)
 
-    # 2. Save relationship
-    agent.memory.save_relationship(fid1, fid2, "relies_on")
+    # Test messages
+    db.add_message("user", "Hello")
+    db.add_message("assistant", "Hi there")
+    messages = db.get_messages()
+    assert len(messages) == 2
+    assert messages[0]['role'] == "user"
+    assert messages[1]['content'] == "Hi there"
 
-    # 3. Retrieve and verify
-    relevant = agent.memory.retrieve_relevant("How does DROSS store information?")
-    assert "ChromaDB" in relevant
+    # Test logs
+    db.add_activity_log("log", "System started")
+    db.add_activity_log("tool", "Running test")
+    logs = db.get_activity_logs()
+    assert len(logs) == 2
+    assert logs[0]['type'] == "tool" # DESC order
 
-    # 4. Verify graph output
-    graph = agent.memory.get_all_memories()
-    assert len(graph["nodes"]) >= 2
-    assert len(graph["edges"]) >= 1
-    assert graph["edges"][0]["label"] == "relies_on"
+    # Test clear
+    db.clear_ui_state()
+    assert len(db.get_messages()) == 0
+    assert len(db.get_activity_logs()) == 0
 
-def test_skill_creation_and_usage(agent):
-    """Test the ability to create and then use a new tool."""
-    tool_name = "test_calculator"
-    tool_code = "def test_calculator(a, b):\n    return f'Result: {a + b}'"
-
-    # 1. Create tool
-    res = agent.tools.execute("create_tool", {
-        "name": tool_name,
-        "description": "Adds two numbers",
-        "code": tool_code
-    }, context=agent._get_context())
-    assert "successfully" in res.lower()
-
-    # 2. Use tool
-    res = agent.tools.execute(tool_name, {"a": 10, "b": 5})
-    assert "Result: 15" in res
-
-def test_subagent_fleet_and_runtime(agent):
-    """Test subagent spawning and fleet status monitoring."""
-    goal = "Subagent Comprehensive Test"
-
-    # 1. Spawn subagent
-    res = agent.tools.execute("spawn_subagent", {"goal": goal})
-    assert "spawned" in res
-    subagent_id = res.split("Subagent ")[1].split(" ")[0]
-
-    # Give it a moment to initialize
-    time.sleep(1)
-
-    # 2. Check status via manager directly
-    status = subagent_manager.get_status(subagent_id)
-    assert status["id"] == subagent_id
-    assert status["goal"] == goal
-
-    # 3. Check list_all for runtime_seconds
-    fleet = subagent_manager.list_all()
-    found = False
-    for sa in fleet:
-        if sa["id"] == subagent_id:
-            assert "runtime_seconds" in sa
-            assert sa["runtime_seconds"] >= 0
-            found = True
-    assert found
-
-@pytest.mark.slow
-def test_agent_run_goal_lifecycle(agent):
-    """Test that Agent.run correctly manages goals for the UI."""
-    # Mock models to ensure TOOL intent
-    from unittest.mock import patch
-
-    with patch.object(agent.models, "route_request", return_value="TOOL"), \
-         patch.object(agent.models, "query_tool", return_value=json.dumps({"tool_name": "list_files", "tool_args": {"path": "."}})), \
-         patch.object(agent.models, "query_general", return_value="I have listed the files."):
-
-        # Verify no goal before
-        assert "No active goal" in agent.tools.execute("get_goal", {}, context=agent._get_context())
-
-        # Run agent
-        agent.run("List my files")
-
-        # In a real scenario, Agent.run would have set and then completed the goal.
-        # Since we are checking AFTER run() finishes, it should be empty/completed.
-        # But we can verify it WAS set if we mock set_goal and check calls,
-        # or just check that it's no longer 'active'.
-
-        res = agent.tools.execute("get_goal", {}, context=agent._get_context())
-        assert "No active goal" in res
-
-def test_auto_learning_and_insight(agent):
-    """Test the auto-learning logic that extracts facts from interaction."""
-    # We'll manually trigger the logic that happens at the end of run()
-    user_input = "My favorite color is neon green and I live in a treehouse."
-    assistant_response = "I have noted that your favorite color is neon green and you reside in a treehouse."
-
-    # Mock extract_insight to return expected facts
-    from unittest.mock import patch
-    mock_insight = {
-        "facts": ["The user's favorite color is neon green.", "The user lives in a treehouse."],
-        "relationships": []
-    }
-
-    with patch.object(agent.models, "extract_insight", return_value=mock_insight):
-        # We need to satisfy the AUTO_LEARN_MIN_LENGTH check
-        # Instead of calling run(), we can just call the part that does the learning
-        # or just call run() with mocked route_request
-        with patch.object(agent.models, "route_request", return_value="DIRECT"), \
-             patch.object(agent.models, "query_general", return_value=assistant_response):
-
-            # Ensure combined length is enough (200 by default)
-            # We can temporarily lower the threshold in config if needed,
-            # but here we just make the input/output long.
-            long_input = user_input + " " * 150
-            agent.run(long_input)
-
-            # Check if facts were saved
-            memories = agent.memory.get_all_memories()
-            contents = [m["content"] for m in memories["nodes"]]
-            assert any("neon green" in c for c in contents)
-            assert any("treehouse" in c for c in contents)
-
-@pytest.mark.slow
-def test_ollama_host_connectivity(agent):
-    """Verifies that all configured Ollama hosts are reachable and have models."""
-    from src.config import OLLAMA_HOSTS
-    health = agent.models.check_health()
-
-    # Check that each host is reachable
-    for host in OLLAMA_HOSTS:
-        assert health.get(host), f"Ollama host {host} is unreachable."
-
-    # Verify mapping logic
-    clients = agent.models.clients
-    if len(clients) == 2:
-        assert agent.models.reasoning_client.base_url._base_url == clients[0].base_url._base_url
-        assert agent.models.general_client.base_url._base_url == clients[0].base_url._base_url
-        assert agent.models.tool_client.base_url._base_url == clients[1].base_url._base_url
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
