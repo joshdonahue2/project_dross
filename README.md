@@ -55,5 +55,5 @@ python diagnose.py
 
 Run the modernized test suite:
 ```bash
-PYTHONPATH=. pytest tests/test_modern.py
+PYTHONPATH=. pytest tests/test_comprehensive.py
 ```

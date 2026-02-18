@@ -2,7 +2,6 @@ import json
 import os
 from typing import Dict, Any, List, Optional, Annotated, TypedDict, Callable
 from langgraph.graph import StateGraph, END
-from langchain_ollama import ChatOllama
 from .schemas import AgentState, Goal, Plan, PlanStep, Subtask
 from .models import ModelManager
 from .tools import registry as tool_registry
@@ -229,10 +228,31 @@ class DROSSGraph:
         # Reflection logic
         goal_json = self._execute_tool("get_goal", {})
         if "No active goal" not in goal_json:
-            goal_data = json.loads(goal_json)
-            if goal_data.get("status") == "completed":
-                self.models.query_reflection(goal_json) # Agent.reflect handles saving etc, but here we just call the model
-                # In a real implementation we might want to use Agent.reflect
+            try:
+                goal_data = json.loads(goal_json)
+                if goal_data.get("status") == "completed":
+                    reflection_raw = self.models.query_reflection(goal_json)
+                    reflection_data = self.models.extract_json(reflection_raw)
+                    if reflection_data:
+                        # Save facts to memory
+                        for fact in reflection_data.get("key_facts", []):
+                            self.memory.save_long_term(fact, metadata={"type": "auto_learned", "source": "reflection"})
+                        # Log lesson
+                        lesson = reflection_data.get("lessons", "")
+                        if lesson:
+                            self._execute_tool("write_journal", {"entry": f"REFLECTION: {lesson}"})
+            except Exception as e:
+                logger.error(f"Reflection error: {e}")
+
+        # Also handle regular insight extraction from the final response
+        final_response = state.get("final_response")
+        if final_response:
+            interaction = f"User: {state['user_input']}\nAssistant: {final_response}"
+            insights = self.models.extract_insight(interaction)
+            if insights and insights.get("facts"):
+                for fact in insights["facts"]:
+                    self.memory.save_long_term(fact, metadata={"type": "episodic", "source": "interaction"})
+
         return {}
 
     # --- Router Functions ---
