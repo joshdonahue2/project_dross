@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from src.agent_graph import DROSSGraph
 from src.tools import get_goal, list_subtasks, _escape_html
 from src.api_schemas import ChatRequest, ChatResponse, StatusResponse, JournalResponse
+from src.db import DROSSDatabase
 import uvicorn
 import os
 import json
@@ -25,8 +26,9 @@ main_loop = None
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
-# Initialize Agent Graph
-logger.info("Initializing DROSS Graph for Web Server...")
+# Initialize Agent Graph and DB
+logger.info("Initializing DROSS Graph and Database for Web Server...")
+db = DROSSDatabase()
 agent = DROSSGraph()
 
 # Async lock to serialize agent calls
@@ -63,6 +65,10 @@ manager = ConnectionManager()
 def tool_callback(tool_name: str, args: dict):
     """Callback for tool execution to notify UI via WebSockets."""
     try:
+        # Persist log
+        content = f"⚡ Running {tool_name}"
+        db.add_activity_log("tool", content)
+
         if main_loop:
             asyncio.run_coroutine_threadsafe(
                 manager.broadcast({
@@ -150,7 +156,9 @@ async def agent_heartbeat_loop():
             if result:
                 steps = result.split(" | ")
                 for step in steps:
-                    await manager.broadcast({"type": "log", "content": f"⚡ Heartbeat: {step}"})
+                    content = f"⚡ Heartbeat: {step}"
+                    db.add_activity_log("log", content)
+                    await manager.broadcast({"type": "log", "content": content})
                 await manager.broadcast({"type": "refresh_status"})
 
             await manager.broadcast({"type": "status", "status": "idle"})
@@ -254,10 +262,18 @@ async def get_memory_graph():
 
 @app.get("/api/journal")
 async def get_journal():
-    from src.db import DROSSDatabase
-    db = DROSSDatabase()
     entries = db.get_journal_entries()
     return {"entries": entries}
+
+@app.get("/api/chat/history")
+async def get_chat_history():
+    messages = db.get_messages()
+    return {"messages": messages}
+
+@app.get("/api/logs/history")
+async def get_logs_history():
+    logs = db.get_activity_logs()
+    return {"logs": logs}
 
 @app.post("/api/memory/clear")
 async def clear_memory():
@@ -271,8 +287,9 @@ async def full_reset():
     from src.db import DB_PATH
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
-    # Re-init agent to re-create DB
-    global agent
+    # Re-init agent and db to re-create DB
+    global agent, db
+    db = DROSSDatabase()
     agent = DROSSGraph()
     await manager.broadcast({"type": "log", "content": "SYSTEM: Reset complete."})
     await manager.broadcast({"type": "refresh_status"})
@@ -284,6 +301,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
+            db.add_message("user", data)
+            db.add_activity_log("log", f"💻 User: {data}")
+
             await manager.broadcast({"type": "status", "status": "thinking"})
             await manager.broadcast({"type": "log", "content": f"💻 User: {data}"})
             loop = asyncio.get_event_loop()
@@ -293,6 +313,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     None, lambda: agent.run(data, callback=tool_callback)
                 )
             
+            db.add_message("assistant", response_text)
             await manager.broadcast({"type": "status", "status": "speaking"})
             await manager.broadcast({"type": "response", "content": response_text})
             await manager.broadcast({"type": "refresh_status"})

@@ -72,6 +72,24 @@ class DROSSDatabase:
                     entry TEXT NOT NULL
                 )
             """)
+            # Chat messages table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL
+                )
+            """)
+            # Activity logs (Live Stream) table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS activity_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    type TEXT NOT NULL,
+                    content TEXT NOT NULL
+                )
+            """)
             conn.commit()
 
     # --- Goal Methods ---
@@ -152,3 +170,29 @@ class DROSSDatabase:
         with self._get_connection() as conn:
             rows = conn.execute("SELECT * FROM journal ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
             return [dict(r) for r in rows]
+
+    # --- Message & Activity Methods ---
+
+    def add_message(self, role: str, content: str):
+        with self._get_connection() as conn:
+            conn.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
+
+    def get_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM messages ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_activity_log(self, log_type: str, content: str):
+        with self._get_connection() as conn:
+            conn.execute("INSERT INTO activity_logs (type, content) VALUES (?, ?)", (log_type, content))
+
+    def get_activity_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM activity_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def clear_ui_state(self):
+        """Clears chat and logs (e.g. on system reset)."""
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM messages")
+            conn.execute("DELETE FROM activity_logs")

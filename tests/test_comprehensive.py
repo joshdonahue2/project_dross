@@ -57,3 +57,33 @@ def test_model_manager_init():
     assert mm.reasoning_model is not None
     assert mm.general_model is not None
     assert mm.tool_model is not None
+
+def test_db_ui_persistence():
+    test_db_path = "data/test_persistence.db"
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)
+
+    db = DROSSDatabase(db_path=test_db_path)
+
+    # Test messages
+    db.add_message("user", "Hello")
+    db.add_message("assistant", "Hi there")
+    messages = db.get_messages()
+    assert len(messages) == 2
+    assert messages[0]['role'] == "user"
+    assert messages[1]['content'] == "Hi there"
+
+    # Test logs
+    db.add_activity_log("log", "System started")
+    db.add_activity_log("tool", "Running test")
+    logs = db.get_activity_logs()
+    assert len(logs) == 2
+    assert logs[0]['type'] == "tool" # DESC order
+
+    # Test clear
+    db.clear_ui_state()
+    assert len(db.get_messages()) == 0
+    assert len(db.get_activity_logs()) == 0
+
+    if os.path.exists(test_db_path):
+        os.remove(test_db_path)

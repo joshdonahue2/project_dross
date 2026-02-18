@@ -77,6 +77,7 @@
             useEffect(() => {
                 connect();
                 fetchStatus();
+                fetchHistory();
                 const interval = setInterval(fetchStatus, 10000);
                 return () => clearInterval(interval);
             }, []);
@@ -130,6 +131,28 @@
                     const res = await fetch('/api/status');
                     const data = await res.json();
                     setStatus(data);
+                } catch (e) {}
+            };
+
+            const fetchHistory = async () => {
+                try {
+                    const [chatRes, logRes] = await Promise.all([
+                        fetch('/api/chat/history'),
+                        fetch('/api/logs/history')
+                    ]);
+                    const chatData = await chatRes.json();
+                    const logData = await logRes.json();
+
+                    if (chatData.messages && chatData.messages.length > 0) {
+                        setMessages(prev => [...prev, ...chatData.messages]);
+                    }
+                    if (logData.logs && logData.logs.length > 0) {
+                        setStream(logData.logs.map(l => ({
+                            type: l.type,
+                            content: l.content,
+                            timestamp: l.timestamp
+                        })));
+                    }
                 } catch (e) {}
             };
 
@@ -241,11 +264,14 @@
 
                             <div className="text-[10px] font-bold uppercase tracking-widest text-[#606070] mb-4">Live Stream</div>
                             <div className="flex-1 overflow-y-auto font-mono text-[11px] text-[#a0a0b0] flex flex-col gap-2 scrollbar-hide">
-                                {stream.map((s, i) => (
-                                    <div key={i} className={`pb-1 border-b border-white/5 ${s.type === 'tool' ? 'text-[#4facfe]' : s.type === 'sys' ? 'text-[#8f94fb]' : ''}`}>
-                                        [{new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}] {s.content}
-                                    </div>
-                                ))}
+                                {stream.map((s, i) => {
+                                    const time = s.timestamp ? new Date(s.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                                    return (
+                                        <div key={i} className={`pb-1 border-b border-white/5 ${s.type === 'tool' ? 'text-[#4facfe]' : s.type === 'sys' ? 'text-[#8f94fb]' : ''}`}>
+                                            [{time}] {s.content}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </aside>
                     </main>
