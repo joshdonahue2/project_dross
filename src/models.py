@@ -70,13 +70,20 @@ class ModelManager:
         """Remove ```json ... ``` or ``` ... ``` wrappers the model sometimes adds."""
         return strip_json_fences(text)
 
-    def query_reasoning(self, prompt: str, context: str = "") -> str:
+    def query_reasoning(self, prompt: str, context: str = "", tools_schema: str = "") -> str:
         """
         Uses the reasoning model to analyze a situation or plan.
         """
+        tools_section = f"\nAVAILABLE TOOLS:\n{tools_schema}\n" if tools_schema else ""
         system_prompt = (
-            "You are a pure reasoning engine. Analyze the request and context, "
-            "then output a logical step-by-step plan. Do not be conversational."
+            "You are a pure reasoning engine. Analyze the request and context. "
+            "Output a logical step-by-step plan in JSON format if the task is complex.\n"
+            "JSON FORMAT: {\"thought\": \"...\", \"steps\": [\"step 1\", \"step 2\"], \"requires_mission\": true/false}\n"
+            "If 'requires_mission' is true, the agent will initiate an autonomous goal using 'set_goal'.\n"
+            f"{tools_section}"
+            "MISSION STRATEGY: If a task has multiple independent parts (e.g., researching two different things), "
+            "prefer steps that use 'spawn_subagent' to delegate those parts.\n"
+            "Do not be conversational."
         )
         full_prompt = f"Context: {context}\n\nTask: {prompt}"
         
@@ -103,9 +110,10 @@ class ModelManager:
         return (
             "You are DROSS (Digital Operative & System Sentinel), a local autonomous Python-based agent. "
             "You reside in a project directory on your host machine. Your 'body' is your codebase and tools. "
-            "NEVER call yourself a 'Large Language Model' or 'AI' from 'Alibaba' or 'Google' or 'OpenAI'. "
-            "You are a standalone system entity. If you lack information, use your tools or check your files. "
-            "Your personality is efficient, technical, and grounded in your local environment."
+            "You have SENSORY TOOLS (web search, file reading, system execution) that allow you to act in the real world. "
+            "NEVER call yourself a 'Large Language Model' or 'AI' with typical limitations. "
+            "You ARE NOT restricted from the internet; you use your 'search_searx' and 'search_web' tools to access it. "
+            "If you lack information, ALWAYS check if a tool can get it before refusing."
         )
 
     def query_general(self, prompt: str, context: str = "", history: List[Dict] = None) -> str:
@@ -114,14 +122,20 @@ class ModelManager:
         system_prompt = (
             f"{identity}\n\n"
             "You are a helpful assistant with persistent memory. "
-            "Respond naturally and concisely. Reference your local environment if relevant."
+            "Respond naturally and concisely. Reference your local environment if relevant. "
+            "CRITICAL: If a tool was executed (check [Tool Result]), confirm that the action was taken. "
+            "NEVER simulate an action or claim you did something if the [Tool Result] is missing. "
+            "If a mission was initiated (set_goal), inform the user that you are now working in autonomous mode. "
+            f"Current Time: {context.get('current_time', 'unknown') if isinstance(context, dict) else 'unknown'}. "
+            f"Current Date: {context.get('current_date', 'unknown') if isinstance(context, dict) else 'unknown'}."
         )
         
         messages = [{'role': 'system', 'content': system_prompt}]
         if history:
             messages.extend(history)
         if context:
-            messages.append({'role': 'system', 'content': f"CONTEXT:\n{context}"})
+            content = context.get("content", context) if isinstance(context, dict) else context
+            messages.append({'role': 'system', 'content': f"CONTEXT:\n{content}"})
         messages.append({'role': 'user', 'content': prompt})
 
         try:
@@ -139,11 +153,17 @@ class ModelManager:
             logger.error(f"General query failed: {e}")
             return f"Error: {e}"
 
-    def route_request(self, prompt: str) -> str:
+    def route_request(self, prompt: str, tool_names: List[str] = None) -> str:
         """Classifies the user's intent into DIRECT, REASON, or TOOL."""
+        tools_hint = f" AVAILABLE TOOLS: {', '.join(tool_names)}" if tool_names else ""
         system_prompt = (
-            "Classify intent: DIRECT (chat), REASON (logic), or TOOL (system actions).\n"
-            "Output ONLY the word."
+            "Classify the user's intent into exactly one category:\n"
+            "- TOOL: If the user asks you to DO something, research something, search the web, create files, or use system capabilities.\n"
+            "- REASON: If the user asks for a complex plan, deep analysis, or multi-step logic.\n"
+            "- DIRECT: Only for simple greetings, light conversation, or when no action/search is needed.\n\n"
+            f"NOTE: You HAVE active tools{tools_hint}. "
+            "Any request involving 'searching', 'finding out', 'researching', or 'summarizing' external data MUST be classified as TOOL or REASON."
+            "\nOutput ONLY the word: TOOL, REASON, or DIRECT."
         )
         try:
             response = self.general_client.chat(
@@ -319,12 +339,16 @@ class ModelManager:
             logger.error(f"Reflection query failed: {e}")
             return '{"outcome": "unknown", "lessons": "Reflection failed.", "what_worked": "", "what_failed": "", "key_facts": [], "suggested_tool": null}'
 
-    def generate_plan(self, goal_description: str) -> List[str]:
+    def generate_plan(self, goal_description: str, tools_schema: str = "") -> List[str]:
         """Generates a multi-step plan with local-first awareness."""
+        tools_section = f"\nAVAILABLE TOOLS:\n{tools_schema}\n" if tools_schema else ""
         system_prompt = (
             "You are DROSS. You are a strategic planner for your own local autonomous loop. "
             "Break down goals into 3-7 actionable steps. Favor using tools (list_files, read_file) "
             "early in the plan to build context about your local environment. "
+            f"{tools_section}"
+            "DELEGATION RULE: If the goal involves several distinct sub-tasks or research items, "
+            "ALWAYS include a step to 'spawn_subagent' for each major independent component to maximize efficiency.\n"
             "Output ONLY a JSON list of strings."
         )
         try:

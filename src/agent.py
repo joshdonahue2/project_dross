@@ -33,7 +33,13 @@ class Agent:
 
     def _get_context(self) -> Dict[str, Any]:
         """Returns the execution context for tools."""
-        return {"data_dir": self.data_dir}
+        from datetime import datetime
+        now = datetime.now()
+        return {
+            "data_dir": self.data_dir,
+            "current_time": now.strftime("%H:%M:%S"),
+            "current_date": now.strftime("%Y-%m-%d")
+        }
 
     def run(self, user_input: str, source: str = "cli", callback: Optional[Callable] = None) -> str:
         # 1. Retrieve Memory
@@ -41,7 +47,8 @@ class Agent:
         short_term_history = self.memory.get_short_term()
         
         # 2. Determine Intent
-        intent = self.models.route_request(user_input)
+        tool_names = list(self.tools.tools.keys())
+        intent = self.models.route_request(user_input, tool_names=tool_names)
         reasoning = ""
         tool_result = ""
 
@@ -55,8 +62,19 @@ class Agent:
             env_context = ""
 
         if intent == "REASON":
+            tool_schema = self.tools.get_schemas_str()
             context_str = f"{env_context}\nLong-term Memory: {long_term_context}\nShort-term History: {short_term_history}"
-            reasoning = self.models.query_reasoning(user_input, context_str)
+            reasoning_raw = self.models.query_reasoning(user_input, context_str, tools_schema=tool_schema)
+            
+            # Try to parse as JSON for mission orchestration
+            reasoning_data = self._extract_json(reasoning_raw)
+            if reasoning_data and reasoning_data.get("requires_mission"):
+                logger.info(f"[Agent] Reasoning requires mission. Initiating goal: {user_input}")
+                tool_result = self.tools.execute("set_goal", {"description": user_input}, context=self._get_context(), callback=callback)
+                # If it's a mission, we use the thought as the reasoning
+                reasoning = reasoning_data.get("thought", reasoning_raw)
+            else:
+                reasoning = reasoning_raw
         
         elif intent == "TOOL":
             tool_schema = self.tools.get_schemas_str()
@@ -80,9 +98,13 @@ class Agent:
         if long_term_context:
             context_parts.append(f"[Relevant Memories]\n{long_term_context}")
         
-        final_context = (f"{env_context}\n\n" if env_context else "") + "\n\n".join(context_parts)
+        context_str = (f"{env_context}\n\n" if env_context else "") + "\n\n".join(context_parts)
+        
+        # Merge environmental strings with the time/date dict for query_general
+        synthesis_context = self._get_context()
+        synthesis_context["content"] = context_str
 
-        response = self.models.query_general(user_input, context=final_context, history=short_term_history)
+        response = self.models.query_general(user_input, context=synthesis_context, history=short_term_history)
         
         # Clean the response
         cleaned_response = self._clean_output(response)
@@ -279,7 +301,7 @@ class Agent:
         plan_json = self.tools.execute("get_plan", {}, context=self._get_context(), callback=callback)
         if "No plan defined" in plan_json:
             logger.info(f"[Heartbeat] No plan for goal '{goal_desc[:30]}'. Generating...")
-            steps = self.models.generate_plan(goal_desc)
+            steps = self.models.generate_plan(goal_desc, tools_schema=tool_schemas)
             self.tools.execute("set_plan", {"steps": steps}, context=self._get_context(), callback=callback)
             plan_json = self.tools.execute("get_plan", {}, context=self._get_context(), callback=callback)
         
