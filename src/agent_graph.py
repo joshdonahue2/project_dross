@@ -27,9 +27,12 @@ class GraphState(TypedDict):
     terminate: bool
 
 class DROSSGraph:
-    def __init__(self):
+    def __init__(self, data_dir: Optional[str] = None):
+        self.data_dir = data_dir
         self.models = ModelManager()
-        self.memory = MemorySystem()
+        # Isolated memory if data_dir is provided
+        mem_path = os.path.join(data_dir, "memory_db") if data_dir else "./data/memory_db"
+        self.memory = MemorySystem(db_path=mem_path)
         self.tools = tool_registry
         self.workflow = self._create_workflow()
         self.app = self.workflow.compile()
