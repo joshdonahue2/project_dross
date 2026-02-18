@@ -51,6 +51,11 @@ class Agent:
         intent = self.models.route_request(user_input, tool_names=tool_names)
         reasoning = ""
         tool_result = ""
+        mission_started = False
+
+        # Set active goal for UI visibility if the agent is performing a substantive task
+        if intent in ("REASON", "TOOL"):
+            self.tools.execute("set_goal", {"description": user_input}, context=self._get_context(), callback=callback)
 
         # Environmental Context â€” only pay the list_files I/O cost for non-trivial intents
         if intent in ("REASON", "TOOL"):
@@ -70,7 +75,7 @@ class Agent:
             reasoning_data = self._extract_json(reasoning_raw)
             if reasoning_data and reasoning_data.get("requires_mission"):
                 logger.info(f"[Agent] Reasoning requires mission. Initiating goal: {user_input}")
-                tool_result = self.tools.execute("set_goal", {"description": user_input}, context=self._get_context(), callback=callback)
+                mission_started = True
                 # If it's a mission, we use the thought as the reasoning
                 reasoning = reasoning_data.get("thought", reasoning_raw)
             else:
@@ -161,7 +166,11 @@ class Agent:
             except Exception as e:
                 print(f"Auto-learning failed: {e}")
             
-        # 6. Episodic Memory Pruning
+        # 6. Finalize Goal if it was a one-off task
+        if intent in ("REASON", "TOOL") and not mission_started:
+            self.tools.execute("complete_goal", {"result_summary": f"Completed: {cleaned_response[:100]}"}, context=self._get_context(), callback=callback)
+
+        # 7. Episodic Memory Pruning
         try:
             pruned_chunk = self.memory.prune_short_term()
             if pruned_chunk:

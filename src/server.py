@@ -71,6 +71,12 @@ def tool_callback(tool_name: str, args: dict):
                 }),
                 main_loop
             )
+            # Automatically refresh status for goal-related tools to keep UI in sync
+            if tool_name in ("set_goal", "complete_goal", "add_subtask", "complete_subtask", "set_plan", "update_plan_step", "spawn_subagent"):
+                asyncio.run_coroutine_threadsafe(
+                    manager.broadcast({"type": "refresh_status"}),
+                    main_loop
+                )
     except Exception as e:
         logger.error(f"Tool Callback Error: {e}")
 
