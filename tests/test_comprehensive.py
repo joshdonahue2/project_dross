@@ -176,3 +176,20 @@ def test_auto_learning_and_insight(agent):
             contents = [m["content"] for m in memories["nodes"]]
             assert any("neon green" in c for c in contents)
             assert any("treehouse" in c for c in contents)
+
+@pytest.mark.slow
+def test_ollama_host_connectivity(agent):
+    """Verifies that all configured Ollama hosts are reachable and have models."""
+    from src.config import OLLAMA_HOSTS
+    health = agent.models.check_health()
+
+    # Check that each host is reachable
+    for host in OLLAMA_HOSTS:
+        assert health.get(host), f"Ollama host {host} is unreachable."
+
+    # Verify mapping logic
+    clients = agent.models.clients
+    if len(clients) == 2:
+        assert agent.models.reasoning_client.base_url._base_url == clients[0].base_url._base_url
+        assert agent.models.general_client.base_url._base_url == clients[0].base_url._base_url
+        assert agent.models.tool_client.base_url._base_url == clients[1].base_url._base_url

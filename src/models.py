@@ -33,23 +33,24 @@ class ModelManager:
         # Client Pool: Reasoning, Tool Selection, General/Autonomy
         self.clients = [Client(host=h) for h in OLLAMA_HOSTS]
         
-        # Ensure we have at least 3 clients in the rotation.
-        # Warn when duplicating so the operator knows load distribution is not happening.
-        if len(self.clients) < 3:
-            import warnings
-            warnings.warn(
-                f"[ModelManager] Only {len(OLLAMA_HOSTS)} OLLAMA_HOST(s) configured but 3 clients are needed "
-                "(reasoning, tool, general). Duplicating clients[0]. "
-                "Set OLLAMA_HOSTS to 3 comma-separated hosts to distribute load.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        while len(self.clients) < 3:
-            self.clients.append(self.clients[0])
-            
-        self.reasoning_client = self.clients[0]
-        self.tool_client = self.clients[1]
-        self.general_client = self.clients[2]
+        # Distribution Logic:
+        # 1 Host: All tasks on Host 1
+        # 2 Hosts: Reasoning/General on Host 1, Tools on Host 2
+        # 3+ Hosts: Reasoning on Host 1, Tools on Host 2, General on Host 3
+        if len(self.clients) == 1:
+            self.reasoning_client = self.clients[0]
+            self.tool_client = self.clients[0]
+            self.general_client = self.clients[0]
+        elif len(self.clients) == 2:
+            self.reasoning_client = self.clients[0]
+            self.tool_client = self.clients[1]
+            self.general_client = self.clients[0]
+            logger.info("Distributed load: Host 1 (Reasoning/General), Host 2 (Tools)")
+        else:
+            self.reasoning_client = self.clients[0]
+            self.tool_client = self.clients[1]
+            self.general_client = self.clients[2]
+            logger.info(f"Distributed load across {len(self.clients)} hosts.")
         
         self.options = {"num_ctx": OLLAMA_NUM_CTX}
 
