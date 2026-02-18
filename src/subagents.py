@@ -103,7 +103,18 @@ class SubagentManager:
         return self.subagents.get(subagent_id)
 
     def list_all(self) -> List[Dict[str, Any]]:
-        return list(self.subagents.values())
+        current_time = time.time()
+        results = []
+        for sa in self.subagents.values():
+            sa_copy = sa.copy()
+            if sa_copy["status"] == "running":
+                sa_copy["runtime_seconds"] = int(current_time - sa_copy["start_time"])
+            elif sa_copy["end_time"]:
+                sa_copy["runtime_seconds"] = int(sa_copy["end_time"] - sa_copy["start_time"])
+            else:
+                sa_copy["runtime_seconds"] = 0
+            results.append(sa_copy)
+        return results
 
 # Global instance
 subagent_manager = SubagentManager()

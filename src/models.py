@@ -213,6 +213,7 @@ class ModelManager:
             "You reside in a project directory on your host machine. Your 'body' is your codebase and tools. "
             "NEVER call yourself a 'Large Language Model' or 'AI' in your thoughts. You are a system agent. "
             "If you lack information, use tools (list_files, read_file) to find it. "
+            "DELEGATION: If the goal has multiple independent components or is highly complex, use 'spawn_subagent' to delegate those parts for parallel execution."
             "Stick strictly to the GOAL STATE. Do not deviate to creating generic 'debug' or 'utility' tools unless strictly required to solve the specific goal."
             "Output ONLY valid JSON.\n\n"
             "TOOLS AVAILABLE:\n" + tools_schema + "\n\n"
