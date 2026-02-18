@@ -1,202 +1,257 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DROSS // Ether v1.1</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>DROSS // Ether React</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Vis Network -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <!-- Marked -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply bg-[#050508] text-[#f0f0f5] font-['Plus_Jakarta_Sans'] h-screen overflow-hidden;
+            }
+        }
+        @layer components {
+            .glass {
+                @apply bg-[rgba(20,20,30,0.4)] backdrop-blur-md border border-[rgba(255,255,255,0.08)] rounded-[20px] shadow-2xl;
+            }
+            .nebula-bg {
+                @apply fixed top-0 left-0 w-full h-full z-[-2] pointer-events-none;
+                background: radial-gradient(circle at 20% 30%, rgba(79, 172, 254, 0.15) 0%, transparent 40%),
+                            radial-gradient(circle at 80% 70%, rgba(143, 148, 251, 0.15) 0%, transparent 40%);
+                filter: blur(80px);
+                animation: pulse-bg 20s infinite alternate;
+            }
+        }
+        @keyframes pulse-bg {
+            0% { transform: scale(1); opacity: 0.7; }
+            100% { transform: scale(1.1); opacity: 1; }
+        }
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        .ring-1 { animation: rotate 10s linear infinite; }
+        .ring-2 { animation: rotate 15s linear reverse infinite; }
+    </style>
 </head>
-
-<body class="ether-theme">
-    <!-- Nebula Background -->
+<body>
     <div class="nebula-bg"></div>
-    <div class="glass-overlay"></div>
+    <div id="root"></div>
 
-    <div class="app-shell">
-        <!-- Sidebar -->
-        <nav class="sidebar glass">
-            <div class="nexus-logo">
-                <div class="orb-mini"></div>
-                <span class="logo-text">DROSS</span>
-            </div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-            <div class="nav-links">
-                <button class="nav-item active" onclick="switchView('nexus')" id="nav-nexus">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                    <span>Nexus</span>
-                </button>
-                <button class="nav-item" onclick="switchView('knowledge')" id="nav-knowledge">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                    <span>Knowledge</span>
-                </button>
-                <button class="nav-item" onclick="switchView('tools')" id="nav-tools">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1 2.83 0l.3.3a2 2 0 0 1 0 2.83l-3.77 3.77a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 0 1.4l-5.86 5.86a2 2 0 0 1-2.83 0l-8.48-8.48a2 2 0 0 1 0-2.83l5.86-5.86z"/></svg>
-                    <span>Capabilities</span>
-                </button>
-                <button class="nav-item" onclick="switchView('files')" id="nav-files">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    <span>Artifacts</span>
-                </button>
-                <button class="nav-item" onclick="switchView('journal')" id="nav-journal">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                    <span>Reflections</span>
-                </button>
-                <button class="nav-item" onclick="switchView('fleet')" id="nav-fleet">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                    <span>Fleet</span>
-                </button>
-                <button class="nav-item" onclick="switchView('system')" id="nav-system">
-                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                    <span>Diagnostics</span>
-                </button>
-            </div>
+        const NavItem = ({ id, active, icon, label, onClick }) => (
+            <button
+                onClick={() => onClick(id)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all w-full text-sm font-medium ${active ? 'bg-[rgba(79,172,254,0.15)] text-[#4facfe]' : 'text-[#a0a0b0] hover:bg-white/5 hover:text-white'}`}
+            >
+                {icon}
+                <span>{label}</span>
+            </button>
+        );
 
-            <div class="system-mini-stats">
-                <div class="mini-stat">
-                    <span class="dot green"></span>
-                    <span id="mem-count-badge">0</span> nodes
-                </div>
-            </div>
-        </nav>
+        const App = () => {
+            const [activeView, setActiveView] = useState('nexus');
+            const [status, setStatus] = useState({ goal: { goal: 'Idle' }, memory_count: 0 });
+            const [messages, setMessages] = useState([{ role: 'sys', content: 'Welcome to DROSS Ether React. System ready.' }]);
+            const [stream, setStream] = useState([]);
+            const [input, setInput] = useState('');
+            const [orbState, setOrbState] = useState('idle');
+            const ws = useRef(null);
+            const chatEndRef = useRef(null);
 
-        <!-- Main Workspace -->
-        <main class="workspace">
-            <!-- View: Nexus (Default) -->
-            <div id="view-nexus" class="view active">
-                <div class="nexus-core">
-                    <div class="nexus-visualizer">
-                        <div id="nexus-orb" class="orb idle">
-                            <div class="orb-inner"></div>
-                            <div class="orb-glow"></div>
-                            <div class="orb-rings">
-                                <div class="ring"></div>
-                                <div class="ring"></div>
+            useEffect(() => {
+                connect();
+                fetchStatus();
+                const interval = setInterval(fetchStatus, 10000);
+                return () => clearInterval(interval);
+            }, []);
+
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            const connect = () => {
+                const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+                ws.current = new WebSocket(`${wsProto}//${window.location.host}/ws`);
+
+                ws.current.onopen = () => {
+                    setStream(prev => [{ type: 'sys', content: 'System uplink established.' }, ...prev]);
+                };
+
+                ws.current.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleWsMessage(data);
+                };
+
+                ws.current.onclose = () => {
+                    setTimeout(connect, 2000);
+                };
+            };
+
+            const handleWsMessage = (data) => {
+                switch (data.type) {
+                    case 'status':
+                        setOrbState(data.status);
+                        break;
+                    case 'tool_start':
+                        setOrbState('thinking');
+                        setStream(prev => [{ type: 'tool', content: `⚡ Running ${data.tool}` }, ...prev]);
+                        break;
+                    case 'response':
+                        setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
+                        setOrbState('idle');
+                        break;
+                    case 'log':
+                        setStream(prev => [{ type: 'log', content: data.content }, ...prev]);
+                        break;
+                    case 'refresh_status':
+                        fetchStatus();
+                        break;
+                }
+            };
+
+            const fetchStatus = async () => {
+                try {
+                    const res = await fetch('/api/status');
+                    const data = await res.json();
+                    setStatus(data);
+                } catch (e) {}
+            };
+
+            const sendMessage = () => {
+                if (!input.trim() || !ws.current) return;
+                setMessages(prev => [...prev, { role: 'user', content: input }]);
+                ws.current.send(input);
+                setInput('');
+                setOrbState('thinking');
+            };
+
+            return (
+                <div className="flex h-screen p-5 gap-5">
+                    {/* Sidebar */}
+                    <nav className="glass w-56 flex flex-col p-6">
+                        <div className="flex items-center gap-3 mb-10 px-2">
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#4facfe] to-[#8f94fb] shadow-[0_0_10px_#4facfe]"></div>
+                            <span className="font-bold text-lg tracking-widest text-white">DROSS</span>
+                        </div>
+
+                        <div className="flex flex-col gap-2 flex-1">
+                            <NavItem id="nexus" active={activeView === 'nexus'} label="Nexus" onClick={setActiveView} icon={
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                            }/>
+                            <NavItem id="knowledge" active={activeView === 'knowledge'} label="Knowledge" onClick={setActiveView} icon={
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            }/>
+                            <NavItem id="tools" active={activeView === 'tools'} label="Capabilities" onClick={setActiveView} icon={
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a2 2 0 0 1 2.83 0l.3.3a2 2 0 0 1 0 2.83l-3.77 3.77a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 0 1.4l-5.86 5.86a2 2 0 0 1-2.83 0l-8.48-8.48a2 2 0 0 1 0-2.83l5.86-5.86z"/></svg>
+                            }/>
+                            <NavItem id="journal" active={activeView === 'journal'} label="Reflections" onClick={setActiveView} icon={
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                            }/>
+                            <NavItem id="system" active={activeView === 'system'} label="Diagnostics" onClick={setActiveView} icon={
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            }/>
+                        </div>
+
+                        <div className="pt-5 border-t border-white/10">
+                            <div className="flex items-center gap-2 text-[10px] font-mono text-[#606070]">
+                                <div className="w-1.5 h-1.5 rounded-full bg-[#00ff88] shadow-[0_0_6px_#00ff88]"></div>
+                                <span>{status.memory_count} nodes</span>
                             </div>
                         </div>
-                        <div class="nexus-status-label">
-                            <h2 id="nexus-state">Core Online</h2>
-                            <p id="nexus-activity">Awaiting interaction...</p>
-                        </div>
-                    </div>
+                    </nav>
 
-                    <div class="nexus-chat glass">
-                        <div id="chat-messages" class="chat-flow">
-                            <div class="msg sys">Welcome to DROSS Ether. System ready.</div>
-                        </div>
-                        <div class="chat-input-area">
-                            <div class="input-wrapper">
-                                <input type="text" id="chat-input" placeholder="Communicate..." autocomplete="off">
-                                <button id="send-btn">
-                                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                                </button>
+                    {/* Main Content */}
+                    <main className="flex-1 flex gap-5">
+                        <div className="flex-1 flex flex-col gap-5 overflow-hidden">
+                            <div className="flex-1 flex flex-col items-center justify-center">
+                                {/* Orb Visualizer */}
+                                <div className="relative w-40 h-40 mb-6 flex items-center justify-center">
+                                    <div className={`absolute w-52 h-52 rounded-full bg-[radial-gradient(circle,rgba(79,172,254,0.2)_0%,transparent_70%)] z-0 transition-all duration-500 ${orbState === 'thinking' ? 'scale-125' : ''}`}></div>
+                                    <div id="nexus-orb" className={`w-24 h-24 rounded-full z-10 shadow-2xl transition-all duration-500 ${
+                                        orbState === 'thinking' ? 'bg-gradient-to-br from-white via-yellow-400 to-orange-500 animate-pulse scale-110 shadow-yellow-500/40' :
+                                        orbState === 'speaking' ? 'bg-gradient-to-br from-white via-teal-400 to-blue-400 shadow-teal-500/40' :
+                                        'bg-gradient-to-br from-white via-[#4facfe] to-[#8f94fb] shadow-blue-500/40'
+                                    }`}></div>
+                                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-white/10 rounded-full ring-1"></div>
+                                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 border border-white/10 border-dashed rounded-full ring-2"></div>
+                                </div>
+                                <div className="text-center">
+                                    <h2 className="text-xl font-semibold">{orbState === 'thinking' ? 'Nexus Reasoning' : orbState === 'speaking' ? 'Nexus Speaking' : 'Nexus Core'}</h2>
+                                    <p className="text-xs font-mono text-[#606070] mt-1">{orbState === 'thinking' ? 'Processing neural patterns...' : 'Awaiting interaction...'}</p>
+                                </div>
+                            </div>
+
+                            {/* Chat Box */}
+                            <div className="glass flex-[1.5] flex flex-col overflow-hidden min-h-0">
+                                <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4">
+                                    {messages.map((m, i) => (
+                                        <div key={i} className={`max-w-[85%] p-3 px-5 rounded-2xl text-[15px] leading-relaxed ${
+                                            m.role === 'sys' ? 'self-center bg-white/5 text-[#606070] text-[10px] uppercase tracking-wider' :
+                                            m.role === 'user' ? 'self-end bg-[#4facfe] text-white rounded-br-none' :
+                                            'self-start bg-white/5 border border-white/10 rounded-bl-none'
+                                        }`} dangerouslySetInnerHTML={m.role === 'assistant' ? { __html: marked.parse(m.content) } : null}>
+                                            {m.role !== 'assistant' && m.content}
+                                        </div>
+                                    ))}
+                                    <div ref={chatEndRef} />
+                                </div>
+                                <div className="p-4 px-5 border-t border-white/10">
+                                    <div className="flex bg-black/20 rounded-full p-1.5 pl-5 items-center border border-white/10 focus-within:border-[#4facfe] transition-colors">
+                                        <input
+                                            type="text"
+                                            value={input}
+                                            onChange={e => setInput(e.target.value)}
+                                            onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                                            placeholder="Communicate..."
+                                            className="flex-1 bg-transparent border-none outline-none text-white text-sm"
+                                        />
+                                        <button onClick={sendMessage} className="w-9 h-9 rounded-full bg-[#4facfe] text-white flex items-center justify-center hover:scale-110 transition-transform">
+                                            <svg className="w-5 h-5" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <!-- Mission Sidebar (Floating) -->
-                <aside class="mission-side glass">
-                    <div class="section-title">Active Goal</div>
-                    <div id="mission-goal" class="goal-highlight">Idle</div>
-                    <div id="mission-subtasks" class="subtask-list">
-                        <!-- Subtasks populate here -->
-                    </div>
-                    
-                    <div class="section-title" style="margin-top: 30px;">Live Stream</div>
-                    <div id="live-stream" class="stream-box">
-                        <!-- Activity logs -->
-                    </div>
-                </aside>
-            </div>
+                        {/* Right Sidebar */}
+                        <aside className="glass w-80 p-5 flex flex-col">
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-[#606070] mb-4">Active Goal</div>
+                            <div className="text-[15px] font-semibold pb-4 mb-4 border-b border-white/10 leading-relaxed">
+                                {status.goal?.goal || 'Idle'}
+                            </div>
 
-            <!-- View: Knowledge -->
-            <div id="view-knowledge" class="view">
-                <div class="view-header">
-                    <h1>Neural Network</h1>
-                    <p>Visualizing relational memory nodes and episodic anchors.</p>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-[#606070] mb-4">Live Stream</div>
+                            <div className="flex-1 overflow-y-auto font-mono text-[11px] text-[#a0a0b0] flex flex-col gap-2 scrollbar-hide">
+                                {stream.map((s, i) => (
+                                    <div key={i} className={`pb-1 border-b border-white/5 ${s.type === 'tool' ? 'text-[#4facfe]' : s.type === 'sys' ? 'text-[#8f94fb]' : ''}`}>
+                                        [{new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}] {s.content}
+                                    </div>
+                                ))}
+                            </div>
+                        </aside>
+                    </main>
                 </div>
-                <div class="knowledge-container glass">
-                    <div id="network-viz"></div>
-                </div>
-            </div>
+            );
+        };
 
-            <!-- View: Tools -->
-            <div id="view-tools" class="view scrollable">
-                <div class="view-header">
-                    <h1>Capabilities Registry</h1>
-                    <p>Available autonomous skills and system tools.</p>
-                </div>
-                <div id="tools-grid" class="grid-layout">
-                    <!-- Tools populate here -->
-                </div>
-            </div>
-
-            <!-- View: Files -->
-            <div id="view-files" class="view scrollable">
-                <div class="view-header">
-                    <h1>Workspace Artifacts</h1>
-                    <p>Browser for files generated and managed by the agent.</p>
-                </div>
-                <div id="files-list" class="files-container glass">
-                    <!-- Files populate here -->
-                </div>
-            </div>
-
-            <!-- View: Journal -->
-            <div id="view-journal" class="view scrollable">
-                <div class="view-header">
-                    <h1>Self-Reflections</h1>
-                    <p>Chronological record of agent insights and lessons learned.</p>
-                </div>
-                <div id="journal-feed" class="journal-container">
-                    <!-- Journal entries populate here -->
-                </div>
-            </div>
-
-            <!-- View: Fleet -->
-            <div id="view-fleet" class="view scrollable">
-                <div class="view-header">
-                    <h1>Subagent Fleet</h1>
-                    <p>Status monitoring for parallel autonomous processes.</p>
-                </div>
-                <div id="fleet-grid" class="grid-layout">
-                    <!-- Subagents populate here -->
-                </div>
-            </div>
-
-            <!-- View: System -->
-            <div id="view-system" class="view scrollable">
-                <div class="view-header">
-                    <h1>Core Diagnostics</h1>
-                    <p>Hardware utilization and backend availability.</p>
-                </div>
-                <div class="system-panels">
-                    <div class="diag-card glass">
-                        <h3>Hardware manifest</h3>
-                        <div id="system-info" class="info-list"></div>
-                    </div>
-                    <div class="diag-card glass">
-                        <h3>Ollama Nodes</h3>
-                        <div id="ollama-health" class="info-list"></div>
-                    </div>
-                    <div class="diag-card glass danger">
-                        <h3>System Controls</h3>
-                        <p>Irreversible management actions.</p>
-                        <div class="action-row">
-                            <button class="btn-outline danger" onclick="wipeMemory()">Purge Memory</button>
-                            <button class="btn-outline danger" onclick="fullReset()">Total Reset</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <script src="/static/script.js"></script>
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
-
 </html>

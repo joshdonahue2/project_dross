@@ -341,6 +341,10 @@ class ModelManager:
             logger.error(f"Reflection query failed: {e}")
             return '{"outcome": "unknown", "lessons": "Reflection failed.", "what_worked": "", "what_failed": "", "key_facts": [], "suggested_tool": null}'
 
+    def extract_json(self, text: str) -> dict:
+        """Robustly extract a JSON object from model output."""
+        return extract_json(text)
+
     def generate_plan(self, goal_description: str, tools_schema: str = "") -> List[str]:
         """Generates a multi-step plan with local-first awareness."""
         tools_section = f"\nAVAILABLE TOOLS:\n{tools_schema}\n" if tools_schema else ""

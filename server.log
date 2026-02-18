@@ -1,0 +1,41 @@
+[Config] WARNING: TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID are not set in your .env file. Telegram features will be disabled.
+2026-02-18 03:24:57,549 - dross.tools - INFO - Loaded skill tool: get_wikipedia_summary
+2026-02-18 03:24:57,550 - dross.tools - INFO - Loaded skill tool: search_searx
+2026-02-18 03:24:57,550 - dross.tools - INFO - Total tools loaded: 2 skills, 0 custom.
+2026-02-18 03:24:58,246 - dross.server - INFO - Initializing DROSS Graph for Web Server...
+2026-02-18 03:24:58,319 - dross.models - INFO - Distributed load: Host 1 (Reasoning/General), Host 2 (Tools)
+INFO:     Started server process [4493]
+INFO:     Waiting for application startup.
+2026-02-18 03:24:58,518 - dross.server - INFO - Heartbeat Loop Started (30s).
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:39102 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39102 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39116 - "GET /static/script.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34452 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:39116 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     connection closed
+INFO:     127.0.0.1:53360 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53360 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53364 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:54610 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47476 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     connection closed
+INFO:     127.0.0.1:42384 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42384 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42400 - "WebSocket /ws" [accepted]
+INFO:     connection closed
+INFO:     127.0.0.1:44452 - "GET /api/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44462 - "GET /api/memory/graph HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44472 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44484 - "GET /api/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44486 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-02-18 03:27:42,731 - dross.agent_graph - INFO - Node: router | Input: Reply with only the word PONG.
+2026-02-18 03:27:48,325 - dross.agent_graph - INFO - Node: tool_executor
+2026-02-18 03:27:48,332 - dross.agent_graph - INFO - Node: synthesizer
+2026-02-18 03:27:53,160 - dross.agent_graph - INFO - Node: reflector
+INFO:     connection closed
+2026-02-18 03:27:58,529 - dross.agent_graph - INFO - Node: tool_executor

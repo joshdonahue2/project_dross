@@ -9,8 +9,10 @@ import subprocess
 from typing import Callable, Dict, Any, List, Optional
 from datetime import datetime
 from .logger import get_logger
+from .db import DROSSDatabase
 
 logger = get_logger("tools")
+db = DROSSDatabase()
 
 try:
     from src.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -314,47 +316,10 @@ def _get_goal_files(context: Optional[Dict[str, Any]] = None):
 def set_goal(description: str, is_autonomous: bool = False, context: Optional[Dict[str, Any]] = None) -> str:
     """
     Sets the agent's active autonomous goal.
-    If an autonomous goal is already active and a USER goal (not autonomous) is set,
-    the autonomous goal is pushed to a stack to be resumed later.
     """
     try:
-        goal_file, stack_file = _get_goal_files(context)
-        
-        # Check current goal for stacking
-        current_goal = None
-        if os.path.exists(goal_file):
-            with open(goal_file, 'r', encoding='utf-8') as f:
-                try:
-                    current_goal = json.load(f)
-                except:
-                    pass
-        
-        # Stacking Logic: If current is active/autonomous and new is NOT autonomous
-        if current_goal and current_goal.get("status") == "active" and not is_autonomous:
-            if current_goal.get("is_autonomous"):
-                logger.info(f"Postponing autonomous goal: {current_goal.get('goal')}")
-                stack = []
-                if os.path.exists(stack_file):
-                    with open(stack_file, 'r', encoding='utf-8') as f:
-                        try:
-                            stack = json.load(f)
-                        except:
-                            pass
-                stack.append(current_goal)
-                with open(stack_file, 'w', encoding='utf-8') as f:
-                    json.dump(stack, f, indent=2)
-
-        data = {
-            "goal": description,
-            "created_at": datetime.now().isoformat(),
-            "status": "active",
-            "is_autonomous": is_autonomous,
-            "subtasks": [],
-            "log": []
-        }
-        with open(goal_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-        return f"Goal set: {description}"
+        goal_id = db.set_goal(description, is_autonomous)
+        return f"Goal set: {description} (ID: {goal_id})"
     except Exception as e:
         return f"Error setting goal: {e}"
 
@@ -362,16 +327,12 @@ def set_goal(description: str, is_autonomous: bool = False, context: Optional[Di
 def get_goal(context: Optional[Dict[str, Any]] = None) -> str:
     """Returns the current active goal or 'No active goal'."""
     try:
-        goal_file, _ = _get_goal_files(context)
-        if not os.path.exists(goal_file):
+        goal = db.get_active_goal()
+        if not goal:
             return "No active goal."
-        with open(goal_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        if data.get("status") != "active":
-             return "No active goal."
-             
-        return json.dumps(data, indent=2)
+        # Compatibility with original format
+        goal["goal"] = goal["description"]
+        return json.dumps(goal, indent=2)
     except Exception as e:
         return f"Error reading goal: {e}"
 
@@ -379,45 +340,12 @@ def get_goal(context: Optional[Dict[str, Any]] = None) -> str:
 def complete_goal(result_summary: str = "Goal reached.", context: Optional[Dict[str, Any]] = None) -> str:
     """Marks the current goal as complete."""
     try:
-        goal_file, stack_file = _get_goal_files(context)
-        if not os.path.exists(goal_file):
+        goal = db.get_active_goal()
+        if not goal:
             return "No active goal to complete."
-        with open(goal_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-        data["status"] = "completed"
-        data["completed_at"] = datetime.now().isoformat()
-        data["result"] = result_summary
         
-        with open(goal_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-            
-        # Resumption Logic: Check if there's a goal to resume
-        resumption_msg = ""
-        if os.path.exists(stack_file):
-            try:
-                with open(stack_file, 'r', encoding='utf-8') as f:
-                    stack = json.load(f)
-                
-                if stack:
-                    resumed_goal = stack.pop()
-                    logger.info(f"Resuming postponed goal: {resumed_goal.get('goal')}")
-                    # Update status and timestamps
-                    resumed_goal["status"] = "active"
-                    resumed_goal["resumed_at"] = datetime.now().isoformat()
-                    
-                    with open(goal_file, 'w', encoding='utf-8') as f:
-                        json.dump(resumed_goal, f, indent=2)
-                    
-                    # Update stack file
-                    with open(stack_file, 'w', encoding='utf-8') as f:
-                        json.dump(stack, f, indent=2)
-                    
-                    resumption_msg = f" Resumed goal: {resumed_goal['goal']}"
-            except Exception as re:
-                logger.error(f"Error resuming goal: {re}")
-
-        return f"Goal marked as completed.{resumption_msg}"
+        db.complete_goal(goal['id'], result_summary)
+        return f"Goal marked as completed."
     except Exception as e:
         return f"Error completing goal: {e}"
 
@@ -627,16 +555,7 @@ def create_tool(name: str, description: str, code: str) -> str:
 def write_journal(entry: str) -> str:
     """Appends an entry to the self-improvement journal."""
     try:
-        os.makedirs(os.path.dirname(JOURNAL_FILE), exist_ok=True)
-        
-        record = {
-            "timestamp": datetime.now().isoformat(),
-            "entry": entry
-        }
-        
-        with open(JOURNAL_FILE, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(record) + "\n")
-        
+        db.add_journal_entry(entry)
         return "Journal entry saved."
     except Exception as e:
         return f"Error writing journal: {e}"
@@ -645,24 +564,12 @@ def write_journal(entry: str) -> str:
 def read_journal(last_n: int = 5) -> str:
     """Reads the last N entries from the self-improvement journal."""
     try:
-        if not os.path.exists(JOURNAL_FILE):
-            return "No journal entries yet."
-        
-        with open(JOURNAL_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        entries = []
-        for line in lines[-last_n:]:
-            try:
-                entries.append(json.loads(line.strip()))
-            except json.JSONDecodeError:
-                continue
-        
+        entries = db.get_journal_entries(limit=last_n)
         if not entries:
             return "No journal entries yet."
         
         output = "Self-Improvement Journal:\n"
-        for e in entries:
+        for e in reversed(entries):
             output += f"[{e.get('timestamp', '?')}] {e.get('entry', '')}\n"
         return output
     except Exception as e:
@@ -853,13 +760,10 @@ def analyze_logs(query: str = "ERROR") -> str:
 def set_plan(steps: List[str], context: Optional[Dict[str, Any]] = None) -> str:
     """Sets a multi-step execution plan for the current goal."""
     try:
-        plan_file = _get_plan_file(context)
-        data = {
-            "steps": [{"description": s, "status": "pending"} for s in steps],
-            "created_at": datetime.now().isoformat()
-        }
-        with open(plan_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        goal = db.get_active_goal()
+        if not goal:
+            return "No active goal to set plan for."
+        db.set_plan(goal['id'], steps)
         return f"Plan set with {len(steps)} steps."
     except Exception as e:
         return f"Error setting plan: {e}"
@@ -867,30 +771,30 @@ def set_plan(steps: List[str], context: Optional[Dict[str, Any]] = None) -> str:
 @registry.register
 def get_plan(context: Optional[Dict[str, Any]] = None) -> str:
     """Returns the current execution plan."""
-    plan_file = _get_plan_file(context)
-    if not os.path.exists(plan_file):
-        return "No plan defined."
     try:
-        with open(plan_file, 'r', encoding='utf-8') as f:
-            return f.read()
+        goal = db.get_active_goal()
+        if not goal:
+            return "No active goal."
+        plan = db.get_plan(goal['id'])
+        if not plan:
+            return "No plan defined."
+        return json.dumps(plan, indent=2)
     except Exception as e:
         return f"Error reading plan: {e}"
 
 @registry.register
 def update_plan_step(step_index: int, status: str = "completed", context: Optional[Dict[str, Any]] = None) -> str:
     """Updates the status of a specific plan step."""
-    plan_file = _get_plan_file(context)
-    if not os.path.exists(plan_file):
-        return "No plan to update."
     try:
-        with open(plan_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if 0 <= step_index < len(data["steps"]):
-            data["steps"][step_index]["status"] = status
-            with open(plan_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            return f"Step {step_index} updated to {status}."
-        return "Invalid step index."
+        goal = db.get_active_goal()
+        if not goal:
+            return "No active goal."
+        plan = db.get_plan(goal['id'])
+        if not plan:
+            return "No plan to update."
+
+        db.update_plan_step(plan['id'], step_index, status)
+        return f"Step {step_index} updated to {status}."
     except Exception as e:
         return f"Error updating plan: {e}"
 
